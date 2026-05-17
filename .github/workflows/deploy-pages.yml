@@ -27,10 +27,17 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
+      - name: Assemble deploy directory
+        run: |
+          mkdir -p _deploy
+          cp index.html _deploy/
+          cp -r game _deploy/game
+          cp -r game-v2 _deploy/game-v2
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: game
+          path: _deploy
 
       - name: Deploy to GitHub Pages
         id: deployment
