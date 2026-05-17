@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cloud Architect Simulator</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="screen-title" class="screen">
+  <div class="title-logo">☁ Cloud Architect Simulator</div>
+  <div class="title-sub">案件を読み、設計し、30日間まわす。</div>
+  <div class="title-desc">
+    あなたはクラウドアーキテクト。案件の要件（RPS・SLA・予算）を読み、<br>
+    AWSサービスを6つのレイヤーに自由配置。<br>
+    30日間のシミュレーションでトラフィック・障害・コスト推移を観察し、<br>
+    弱点を見つけて構成を改善せよ。
+  </div>
+  <button id="btn-start" class="primary-btn">案件を選ぶ →</button>
+</div>
+
+<div id="screen-cases" class="screen hidden">
+  <h2>案件一覧</h2>
+  <p class="sub">クリアした案件もランクアップを目指して再挑戦できます。</p>
+  <div id="case-list"></div>
+</div>
+
+<div id="screen-architect" class="screen hidden">
+  <div class="architect-grid">
+    <aside id="req-panel" class="panel"></aside>
+
+    <main class="main-area">
+      <div class="layers-header">
+        <h3>アーキテクチャ構成</h3>
+        <div class="actions">
+          <button id="btn-back-to-cases">← 案件選択</button>
+          <button id="btn-clear-arch">クリア</button>
+          <button id="btn-simulate" class="primary-btn">▶ 30日シミュレート</button>
+        </div>
+      </div>
+      <div id="layers-area"></div>
+      <div id="summary"></div>
+
+      <div id="result-panel" class="panel"></div>
+    </main>
+
+    <aside class="palette-panel">
+      <h3>AWSサービス</h3>
+      <p class="sub">クリックして配置</p>
+      <div id="palette"></div>
+    </aside>
+  </div>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>
