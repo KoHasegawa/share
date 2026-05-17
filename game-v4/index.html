@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cloud Career Architect</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div>
+        <div class="brand">☁ Cloud Career Architect</div>
+        <div class="subtitle">AWS案件を解いて昇進するキャンペーン</div>
+      </div>
+      <div class="top-status">
+        <span id="hud-career">新人クラウド見習い</span>
+        <div id="hud-resources" class="resource-strip"></div>
+      </div>
+    </header>
+
+    <main>
+      <section id="screen-title" class="screen title-screen">
+        <div class="title-panel">
+          <p class="eyebrow">AWS学習ゲーム v4</p>
+          <h1>案件選択でキャリアを進める。</h1>
+          <p>正解、支援、罠、互換不可、シナジーを読み分け、評判・予算・信頼・SLAを守りながらアーキテクト昇格を目指します。</p>
+          <div id="title-save-state" class="save-state"></div>
+          <div class="actions">
+            <button id="btn-continue" class="primary-btn">続きから</button>
+            <button id="btn-new">最初から</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-career" class="screen hidden">
+        <div class="career-head">
+          <div>
+            <p class="eyebrow">Career</p>
+            <h2 id="career-title"></h2>
+            <p id="career-note" class="muted"></p>
+          </div>
+          <button id="btn-back-title">タイトルへ</button>
+        </div>
+
+        <div id="career-resources" class="resource-grid"></div>
+
+        <div class="review-panel">
+          <h3>復習フラグ</h3>
+          <div id="review-flags" class="review-tags"></div>
+        </div>
+
+        <div id="chapter-list" class="chapter-list"></div>
+      </section>
+
+      <section id="screen-game" class="screen hidden">
+        <div class="game-hud">
+          <div>
+            <div id="chapter-label" class="round-label"></div>
+            <div class="type-line">
+              <span id="type-label" class="type-badge"></span>
+              <span id="type-hint"></span>
+            </div>
+            <h2 id="challenge-title"></h2>
+          </div>
+          <div class="timer-box">
+            <div id="timer-text">30.0s</div>
+            <div class="timer-track"><div id="timer-fill"></div></div>
+          </div>
+        </div>
+
+        <div class="challenge-card">
+          <p id="challenge-brief"></p>
+          <div class="challenge-meta">
+            <div id="focus-tags" class="focus-tags"></div>
+            <span id="select-limit" class="limit-pill">選択上限 4</span>
+          </div>
+        </div>
+
+        <div class="section-head">
+          <span>候補サービス</span>
+          <span id="selected-count">選択中 0/4</span>
+        </div>
+        <div id="service-grid" class="service-grid"></div>
+
+        <div class="actions game-actions">
+          <button id="btn-reset">リセット</button>
+          <button id="btn-submit" class="primary-btn">提出</button>
+        </div>
+      </section>
+
+      <section id="screen-result" class="screen hidden">
+        <div class="result-layout">
+          <aside class="rank-panel">
+            <div id="result-rank" class="rank-badge">A</div>
+            <div id="result-score" class="score-line">82点</div>
+            <div id="result-delta" class="delta-line"></div>
+          </aside>
+          <div class="result-main">
+            <p id="result-type" class="eyebrow"></p>
+            <h2 id="result-title"></h2>
+            <div id="axis-bars" class="axis-bars"></div>
+            <div id="match-summary" class="match-summary"></div>
+            <div id="explanation" class="explanation"></div>
+            <div class="actions result-actions">
+              <button id="btn-next" class="primary-btn">次の案件へ</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-chapter-final" class="screen hidden">
+        <div class="final-panel">
+          <div id="chapter-final-rank" class="rank-badge">A</div>
+          <h2 id="chapter-final-title">章クリア</h2>
+          <p id="chapter-final-detail" class="muted"></p>
+          <p id="unlock-message" class="unlock-message"></p>
+          <div id="chapter-final-resources" class="resource-grid"></div>
+          <div id="round-log" class="round-log"></div>
+          <div id="final-review" class="review-panel"></div>
+          <div class="actions">
+            <button id="btn-career" class="primary-btn">キャリア画面へ</button>
+            <button id="btn-title-from-final">タイトルへ</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-gameover" class="screen hidden">
+        <div class="final-panel gameover-panel">
+          <div class="gameover-mark">!</div>
+          <h2>ゲームオーバー</h2>
+          <p id="gameover-message" class="muted"></p>
+          <div id="gameover-resources" class="resource-grid"></div>
+          <div class="actions">
+            <button id="btn-restart-gameover" class="primary-btn">最初から再挑戦</button>
+            <button id="btn-title-gameover">タイトルへ</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/progression.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/ui.js"></script>
+</body>
+</html>
