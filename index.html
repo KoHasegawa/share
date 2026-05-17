@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AWS学習ゲーム</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 16px;
+    }
+    h1 {
+      color: #58a6ff;
+      font-size: 2rem;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+    .sub {
+      color: #8b949e;
+      margin-bottom: 40px;
+      text-align: center;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
+      max-width: 800px;
+      width: 100%;
+    }
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 24px;
+      text-decoration: none;
+      color: inherit;
+      transition: all 0.15s;
+      display: block;
+    }
+    .card:hover {
+      border-color: #58a6ff;
+      background: #1c2128;
+      transform: translateY(-2px);
+    }
+    .card h2 {
+      color: #58a6ff;
+      font-size: 1.3rem;
+      margin-bottom: 8px;
+    }
+    .card .badge {
+      display: inline-block;
+      background: #1f6feb;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      margin-bottom: 12px;
+    }
+    .card .badge.legacy {
+      background: #6e7681;
+    }
+    .card p {
+      color: #c9d1d9;
+      line-height: 1.6;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+    .card .meta {
+      color: #8b949e;
+      font-size: 12px;
+    }
+    footer {
+      margin-top: 48px;
+      color: #6e7681;
+      font-size: 12px;
+    }
+    footer a { color: #58a6ff; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <h1>☁ AWS学習ゲーム</h1>
+  <p class="sub">プレイしたい方を選んでください。</p>
+
+  <div class="grid">
+    <a class="card" href="game-v2/index.html">
+      <span class="badge">NEW</span>
+      <h2>Cloud Architect Simulator</h2>
+      <p>案件の要件（RPS・SLA・予算）を読み、AWSサービスを6レイヤーに配置。30日間のシミュレーションでトラフィック・障害・コストを観察して構成を改善する。</p>
+      <p class="meta">シミュレーション型 / 運要素なし</p>
+    </a>
+
+    <a class="card" href="game/index.html">
+      <span class="badge legacy">LEGACY</span>
+      <h2>Cloud Deck Architect</h2>
+      <p>手札のカードからアーキテクチャを組むデッキ構築型ゲーム。6評価軸でランク判定。</p>
+      <p class="meta">デッキ構築型 / ローグライク要素あり</p>
+    </a>
+  </div>
+
+  <footer>
+    <a href="https://github.com/KoHasegawa/share">GitHub Repository</a>
+  </footer>
+</body>
+</html>
