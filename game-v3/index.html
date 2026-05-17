@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cloud Sprint Architect</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div>
+        <div class="brand">☁ Cloud Sprint Architect</div>
+        <div class="subtitle">AWSサービスを数秒で選ぶ設計スプリント</div>
+      </div>
+      <div class="top-stats">
+        <span id="stat-score">Score 0</span>
+        <span id="stat-streak">Streak 0</span>
+      </div>
+    </header>
+
+    <main>
+      <section id="screen-title" class="screen title-screen">
+        <div class="mode-panel">
+          <h1>案件を読んで、最大3つのAWSサービスを即選択。</h1>
+          <p>1ラウンドは数秒。提出するとすぐに6軸評価と短い解説が返ります。</p>
+          <div class="mode-actions">
+            <button id="btn-start-sprint" class="primary-btn">▶ スプリント 8問</button>
+            <button id="btn-start-quick">⚡ クイック 5問</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-game" class="screen hidden">
+        <div class="hud">
+          <div>
+            <div id="round-label" class="round-label">Round 1/8</div>
+            <h2 id="challenge-title"></h2>
+          </div>
+          <div class="timer-box">
+            <div id="timer-text">14.0s</div>
+            <div class="timer-track"><div id="timer-fill"></div></div>
+          </div>
+        </div>
+
+        <div class="challenge-card">
+          <p id="challenge-brief"></p>
+          <div id="focus-tags"></div>
+        </div>
+
+        <div class="section-head">
+          <span>候補サービス</span>
+          <span id="selected-count">選択中 0/3</span>
+        </div>
+        <div id="service-grid" class="service-grid"></div>
+
+        <div class="action-row">
+          <button id="btn-reset">リセット</button>
+          <button id="btn-submit" class="primary-btn">提出</button>
+        </div>
+      </section>
+
+      <section id="screen-result" class="screen hidden">
+        <div class="result-layout">
+          <div class="rank-panel">
+            <div id="result-rank" class="rank-badge">A</div>
+            <div id="result-score" class="score-line">82点</div>
+            <div id="result-time" class="time-line">残り 6.2秒</div>
+          </div>
+          <div class="result-main">
+            <h2 id="result-title"></h2>
+            <div id="axis-bars" class="axis-bars"></div>
+            <div id="match-summary" class="match-summary"></div>
+            <div id="explanation" class="explanation"></div>
+            <div class="action-row result-actions">
+              <button id="btn-retry-round">同じ問題を再挑戦</button>
+              <button id="btn-next" class="primary-btn">次へ</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-final" class="screen hidden">
+        <div class="final-panel">
+          <div id="final-rank" class="rank-badge">A</div>
+          <h2 id="final-title">ラン完了</h2>
+          <div id="final-stats" class="final-stats"></div>
+          <div id="round-log" class="round-log"></div>
+          <div id="review-box" class="review-box"></div>
+          <div class="mode-actions">
+            <button id="btn-play-again" class="primary-btn">もう一度</button>
+            <button id="btn-back-title">モード選択へ</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/ui.js"></script>
+</body>
+</html>
