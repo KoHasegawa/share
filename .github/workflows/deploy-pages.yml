@@ -34,6 +34,7 @@ jobs:
           cp -r game _deploy/game
           cp -r game-v2 _deploy/game-v2
           cp -r game-v3 _deploy/game-v3
+          cp -r game-v4 _deploy/game-v4
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
