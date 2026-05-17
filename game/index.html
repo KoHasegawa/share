@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cloud Deck Architect</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- タイトル -->
+<div id="screen-title" class="screen">
+  <div class="title-logo">☁ Cloud Deck Architect</div>
+  <div class="title-sub">AWS初学者向けデッキ構築型学習ゲーム</div>
+  <div class="title-desc">クラウド設計者として案件を受け、技術カードでアーキテクチャを組もう。<br>機能・可用性・セキュリティ・性能・コスト・運用の6軸で評価される。</div>
+  <button id="btn-start">ゲームを始める</button>
+</div>
+
+<!-- アセンション選択 -->
+<div id="screen-ascension" class="screen hidden">
+  <div class="screen-heading">難度を選ぼう</div>
+  <div class="screen-sub">A0が最も易しく、数字が大きいほど厳しくなります。</div>
+  <div id="asc-list"></div>
+</div>
+
+<!-- ゲームメイン -->
+<div id="screen-game" class="screen hidden">
+  <div id="status-bar">
+    <span id="stat-case">案件 1/15</span>
+    <span id="stat-sp" class="stat-sp">SP: 5</span>
+    <span id="stat-deck">デッキ: 10</span>
+    <span id="stat-discard">捨て場: 0</span>
+    <span id="stat-asc">A0</span>
+    <span>知識タグ: <span id="stat-tags">なし</span></span>
+    <span id="stat-ticket">模擬: 0</span>
+    <span>レリック: <span id="stat-relics">なし</span></span>
+  </div>
+
+  <div id="case-area">
+    <div id="case-title"></div>
+    <div id="case-desc"></div>
+    <div id="case-theme"></div>
+    <div id="case-weights"></div>
+    <div id="case-meta"></div>
+  </div>
+
+  <div class="area-label">▶ 使用するカード（最大4枚）</div>
+  <div id="play-area"></div>
+  <div id="play-count">0 / 4 枚使用中</div>
+  <div id="score-preview"></div>
+
+  <div class="area-label">🃏 手札</div>
+  <div id="hand-area"></div>
+
+  <div style="text-align:center;margin-top:12px;">
+    <button id="btn-submit">アーキテクチャを提出する</button>
+  </div>
+</div>
+
+<!-- 結果 -->
+<div id="screen-result" class="screen hidden" style="text-align:center;">
+  <h2 id="res-case"></h2>
+  <div class="rank-badge" id="res-rank">-</div>
+  <div id="res-avg" style="font-size:1.3rem;margin:8px 0;"></div>
+  <div id="res-bars" style="max-width:400px;margin:0 auto 12px;text-align:left;"></div>
+  <div id="res-synergy" style="color:#39d353;font-size:13px;margin-bottom:6px;"></div>
+  <div id="res-weak" style="color:#f85149;font-size:13px;margin-bottom:6px;"></div>
+  <div id="res-detail" style="max-width:560px;margin:10px auto;text-align:left;"></div>
+  <div id="res-sp" style="color:#d29922;font-weight:700;font-size:1.1rem;margin-bottom:20px;"></div>
+  <button id="btn-to-reward">報酬を選ぶ →</button>
+</div>
+
+<!-- 報酬選択 -->
+<div id="screen-reward" class="screen hidden">
+  <div class="screen-heading">報酬を選ぼう</div>
+  <div class="screen-sub">1つ選んでください。選んだ後は変更できません。</div>
+  <div id="reward-list" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:16px;"></div>
+</div>
+
+<!-- カード削除 -->
+<div id="screen-remove" class="screen hidden">
+  <div class="screen-heading">削除するカードを選ぼう</div>
+  <div class="screen-sub">デッキから1枚を完全に取り除きます。</div>
+  <div id="remove-list" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:16px;"></div>
+  <button id="btn-skip-remove" style="margin-top:16px;">スキップ</button>
+</div>
+
+<!-- 市場 -->
+<div id="screen-market" class="screen hidden">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <div class="screen-heading">市場</div>
+    <div id="market-sp" class="stat-sp">SP: 5</div>
+  </div>
+  <div class="screen-sub">SPを使ってデッキを強化できます。</div>
+  <div id="market-msg" style="color:#39d353;min-height:20px;margin:8px 0;"></div>
+  <div id="market-list"></div>
+  <div id="market-select-area" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;"></div>
+  <button id="btn-market-next" style="margin-top:16px;">次の案件へ →</button>
+</div>
+
+<!-- ゲームオーバー -->
+<div id="screen-gameover" class="screen hidden" style="text-align:center;padding-top:40px;">
+  <div class="screen-heading" style="font-size:1.8rem;">ゲーム終了</div>
+  <div class="rank-badge" id="go-rank">-</div>
+  <div id="go-avg" style="font-size:1.2rem;margin:12px 0;"></div>
+  <div class="summary-grid">
+    <div>
+      <h3>学習ログ</h3>
+      <div id="go-log"></div>
+    </div>
+    <div>
+      <h3>失点した案件</h3>
+      <div id="go-lost"></div>
+      <h3>主な原因</h3>
+      <div id="go-causes"></div>
+      <h3>復習テーマ</h3>
+      <div id="go-review"></div>
+      <div id="go-goal"></div>
+    </div>
+  </div>
+  <button id="btn-retry">もう一度プレイする</button>
+</div>
+
+<!-- トースト -->
+<div id="toast" class="hidden"></div>
+
+<script src="js/data.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>

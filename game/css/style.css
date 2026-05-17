@@ -1,0 +1,148 @@
+/* Cloud Deck Architect — ダークテーマ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0d1117; --bg2: #161b22; --bg3: #21262d;
+  --border: #30363d; --text: #e6edf3; --text2: #8b949e;
+  --accent: #58a6ff; --green: #3fb950; --yellow: #d29922;
+  --red: #f85149; --purple: #bc8cff; --orange: #e3b341; --cyan: #39d353;
+}
+
+body { background:var(--bg); color:var(--text); font-family:'Segoe UI',Arial,sans-serif; font-size:14px; line-height:1.5; min-height:100vh; }
+.hidden { display:none !important; }
+button { cursor:pointer; border:1px solid var(--border); border-radius:6px; background:var(--bg3); color:var(--text); padding:6px 14px; font-size:13px; transition:background .15s,border-color .15s; }
+button:hover:not(:disabled) { background:#2d333b; border-color:var(--accent); }
+button:disabled { opacity:.4; cursor:not-allowed; }
+
+/* ── スクリーン ── */
+.screen { max-width:900px; margin:0 auto; padding:24px 16px; }
+
+/* ── タイトル ── */
+#screen-title { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; text-align:center; }
+.title-logo { font-size:2.4rem; font-weight:700; color:var(--accent); margin-bottom:8px; }
+.title-sub { color:var(--text2); margin-bottom:16px; }
+.title-desc { max-width:480px; color:var(--text2); margin-bottom:40px; line-height:1.8; }
+#btn-start { background:var(--accent); color:#000; border:none; padding:12px 40px; font-size:1rem; font-weight:600; border-radius:8px; }
+#btn-start:hover { background:#79c0ff; }
+
+/* ── アセンション ── */
+#asc-list { display:flex; flex-direction:column; gap:12px; }
+.asc-option { background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:16px 20px; cursor:pointer; transition:border-color .15s; }
+.asc-option:hover { border-color:var(--accent); }
+.asc-label { font-weight:600; color:var(--accent); }
+.asc-desc { color:var(--text2); margin-top:4px; }
+
+/* ── 見出し ── */
+.screen-heading { font-size:1.4rem; font-weight:700; margin-bottom:8px; }
+.screen-sub { color:var(--text2); margin-bottom:16px; }
+.area-label { font-size:12px; color:var(--text2); text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px; }
+
+/* ── ステータスバー ── */
+#status-bar { display:flex; gap:16px; align-items:center; flex-wrap:wrap; background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:8px 16px; margin-bottom:16px; font-size:13px; }
+.stat-sp { color:var(--yellow); font-weight:700; }
+
+/* ── 案件カード ── */
+#case-area { background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:16px; }
+#case-title { font-size:1.1rem; font-weight:700; margin-bottom:6px; }
+#case-desc { color:var(--text2); margin-bottom:10px; }
+#case-theme { color:var(--accent); font-size:12px; margin-bottom:10px; }
+#case-weights { display:flex; gap:8px; flex-wrap:wrap; }
+.weight-tag { background:var(--bg3); border:1px solid var(--border); border-radius:4px; padding:2px 8px; font-size:12px; }
+.w1{color:var(--text2);} .w2{color:var(--text);} .w3{color:var(--yellow);} .w4{color:var(--orange);} .w5{color:var(--red);}
+#case-meta { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+.info-pill, .constraint-pill, .incident-pill { display:inline-block; border:1px solid var(--border); border-radius:999px; padding:3px 9px; font-size:12px; background:var(--bg3); }
+.constraint-pill { border-color:var(--yellow); color:var(--yellow); }
+.incident-pill { border-color:var(--red); color:var(--red); }
+.info-pill { border-color:var(--accent); color:var(--accent); }
+
+/* ── プレイエリア・手札 ── */
+#hand-area, #play-area { display:flex; gap:10px; flex-wrap:wrap; min-height:110px; padding:8px; background:var(--bg2); border:1px dashed var(--border); border-radius:8px; margin-bottom:10px; }
+#play-area { border-color:var(--accent); }
+#play-count { font-size:12px; color:var(--text2); margin-bottom:8px; }
+
+/* ── カード ── */
+.card { width:148px; min-height:110px; border-radius:8px; border:1px solid var(--border); padding:8px; display:flex; flex-direction:column; gap:5px; transition:border-color .15s,transform .1s; }
+.card:hover { transform:translateY(-2px); border-color:var(--accent); }
+.card.selected { border-color:var(--green); }
+.type-concept   { background:#1c2d3e; }
+.type-aws       { background:#1e2a1e; }
+.type-principle { background:#2d1e3e; }
+.type-trap      { background:#3e1e1e; border-color:var(--red); }
+.card-header { display:flex; align-items:center; gap:5px; }
+.card-type { font-size:10px; padding:1px 4px; border-radius:3px; background:var(--bg3); color:var(--text2); }
+.card-name { font-size:13px; font-weight:700; }
+.upgrade-mark { margin-left:auto; color:var(--yellow); font-weight:700; font-size:12px; }
+.card-effects { display:flex; gap:3px; flex-wrap:wrap; flex:1; }
+.eff { font-size:11px; padding:1px 5px; border-radius:3px; }
+.eff-func   { background:#1a3a2a; color:#56d364; }
+.eff-avail  { background:#1a2a3a; color:#58a6ff; }
+.eff-sec    { background:#2a1a3a; color:#bc8cff; }
+.eff-perf   { background:#3a2a1a; color:#e3b341; }
+.eff-cost   { background:#2a2a1a; color:#f2cc60; }
+.eff-ops    { background:#1a2a2a; color:#39d353; }
+.eff-pen    { background:#3a1a1a; color:#f85149; }
+.card-tags { display:flex; gap:3px; flex-wrap:wrap; }
+.card-tags span { font-size:10px; color:var(--text2); border:1px solid var(--border); border-radius:3px; padding:0 4px; }
+.card-btn   { margin-top:auto; width:100%; font-size:12px; padding:3px; }
+
+/* ── スコアプレビュー ── */
+.preview-box { background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:12px; margin-bottom:12px; }
+.preview-avg { font-size:1rem; margin-bottom:8px; }
+.preview-note { color:var(--text2); font-size:12px; margin-top:8px; }
+.p-bar { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+.p-label { width:72px; font-size:12px; color:var(--text2); flex-shrink:0; }
+.bar-bg { flex:1; height:10px; background:var(--bg3); border-radius:5px; overflow:hidden; }
+.bar-fill { height:100%; background:var(--accent); border-radius:5px; transition:width .4s; }
+.score-hi  { background:var(--green); }
+.score-mid { background:var(--yellow); }
+.score-lo  { background:var(--red); }
+.p-val { width:28px; text-align:right; font-size:12px; }
+
+/* ── 提出ボタン ── */
+#btn-submit { background:var(--green); color:#000; font-weight:700; font-size:1rem; padding:10px 48px; border:none; border-radius:8px; }
+#btn-submit:hover { background:#56d364; }
+
+/* ── ランク ── */
+.rank, .rank-badge { font-weight:700; padding:2px 10px; border-radius:4px; }
+.rank-S,.rank-badge.rank-S { background:#ffd700; color:#000; }
+.rank-A,.rank-badge.rank-A { background:#c0c0c0; color:#000; }
+.rank-B,.rank-badge.rank-B { background:#cd7f32; color:#fff; }
+.rank-C,.rank-badge.rank-C { background:var(--bg3); color:var(--text); }
+.rank-D,.rank-badge.rank-D { background:var(--red); color:#fff; }
+.rank-badge { font-size:2rem; padding:8px 24px; border-radius:8px; display:inline-block; margin:8px 0; }
+
+/* ── 報酬 ── */
+.reward-opt { background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:16px; cursor:pointer; flex:1; min-width:200px; transition:border-color .15s; }
+.reward-opt:hover { border-color:var(--accent); }
+.reward-label { font-weight:700; margin-bottom:8px; color:var(--accent); }
+.relic-desc { font-size:12px; color:var(--text2); margin-top:8px; }
+.detail-row { background:var(--bg2); border:1px solid var(--border); border-radius:6px; padding:8px 10px; margin-bottom:6px; color:var(--text2); font-size:13px; }
+
+/* ── 市場 ── */
+#market-list { display:flex; flex-direction:column; gap:10px; }
+.market-item { background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:12px 16px; display:flex; align-items:center; gap:12px; }
+.market-name { font-weight:700; width:200px; flex-shrink:0; }
+.market-cost { color:var(--yellow); font-size:12px; }
+.market-desc { color:var(--text2); font-size:13px; flex:1; }
+.btn-buy { flex-shrink:0; }
+.select-title, .empty-note { width:100%; color:var(--text2); font-size:13px; }
+
+/* ── ゲームオーバー ── */
+.go-row { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--border); }
+.go-row span:first-child { flex:1; }
+.summary-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; max-width:820px; margin:16px auto; text-align:left; }
+.summary-grid h3 { font-size:14px; color:var(--text); margin:12px 0 8px; }
+.review-tag { display:inline-block; background:var(--bg3); border:1px solid var(--accent); color:var(--accent); border-radius:4px; padding:2px 8px; margin:2px; font-size:13px; }
+#go-goal { color:var(--yellow); margin-top:10px; font-weight:700; }
+#btn-retry { background:var(--accent); color:#000; font-weight:700; padding:10px 32px; border:none; }
+#btn-retry:hover { background:#79c0ff; }
+#btn-to-reward { background:var(--accent); color:#000; font-weight:700; padding:10px 32px; border:none; }
+#btn-to-reward:hover { background:#79c0ff; }
+
+/* ── トースト ── */
+#toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:var(--bg3); border:1px solid var(--accent); color:var(--text); padding:10px 20px; border-radius:8px; z-index:9999; font-size:14px; }
+
+/* ── スクロール ── */
+::-webkit-scrollbar { width:6px; } ::-webkit-scrollbar-track { background:var(--bg); } ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+
+@media (max-width:600px) { .card { width:130px; } .market-item { flex-direction:column; align-items:flex-start; } .market-name { width:auto; } .summary-grid { grid-template-columns:1fr; } }
