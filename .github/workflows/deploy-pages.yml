@@ -33,6 +33,7 @@ jobs:
           cp index.html _deploy/
           cp -r game _deploy/game
           cp -r game-v2 _deploy/game-v2
+          cp -r game-v3 _deploy/game-v3
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
