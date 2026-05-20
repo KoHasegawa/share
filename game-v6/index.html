@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWS早押しクイズ — みんはや形式 (CLF / SAA)</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>⚡ AWS早押しクイズ</h1>
+    <div class="sub">みんはや形式で CLF / SAA を叩き込む。問題文が出きる前に押せ！</div>
+    <a class="back" href="../index.html">← 学習ゲーム一覧へ</a>
+  </header>
+
+  <!-- ========== スタート画面 ========== -->
+  <section id="screen-start" class="panel">
+    <div class="field">
+      <label>対象資格</label>
+      <div id="certOpts" class="opts">
+        <button class="opt sel" data-v="both">CLF + SAA（全部）</button>
+        <button class="opt" data-v="clf">クラウドプラクティショナー</button>
+        <button class="opt" data-v="saa">ソリューションアーキテクト アソシエイト</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>分野（未選択なら全分野からランダム）</label>
+      <div id="domOpts" class="dom-grid"></div>
+    </div>
+
+    <div class="field">
+      <label>出題数</label>
+      <div id="countOpts" class="opts">
+        <button class="opt" data-v="5">5問</button>
+        <button class="opt sel" data-v="10">10問</button>
+        <button class="opt" data-v="20">20問</button>
+        <button class="opt" data-v="999">全部</button>
+      </div>
+    </div>
+
+    <div class="field" style="text-align:center;color:var(--muted);font-size:.85rem">
+      <span id="avail"></span>
+    </div>
+    <button id="startBtn" class="btn">▶ スタート</button>
+    <p style="margin-top:12px;color:var(--muted);font-size:.78rem;line-height:1.6;text-align:center">
+      操作: 問題文表示中に <b>スペース / Enter</b> または赤ボタンで早押し。<br>
+      回答は <b>A〜D キー</b> またはクリック。早く押して正解するほど高得点！
+    </p>
+  </section>
+
+  <!-- ========== プレイ画面 ========== -->
+  <section id="screen-play" class="panel hidden">
+    <div class="hud">
+      <span id="qpos">第 1 / 10 問</span>
+      <span>スコア <span class="score" id="scoreVal">0</span> ・ 連答 <span class="streak" id="streakVal">0</span></span>
+      <button id="quitBtn" class="opt" style="padding:4px 10px">中断</button>
+    </div>
+    <div class="progressbar"><i id="qprogress"></i></div>
+
+    <div id="tags" class="tags"></div>
+    <div id="qtext" class="qcard"></div>
+
+    <!-- 早押しボタン -->
+    <div id="buzzArea" class="buzz-area">
+      <button id="buzzBtn" class="buzz">早押し！<small>Space / Enter</small></button>
+    </div>
+
+    <!-- 回答エリア -->
+    <div id="answerArea" class="hidden">
+      <div class="answer-timer" id="answerBar"><i></i></div>
+      <div id="choices" class="choices"></div>
+      <div id="feedback" class="feedback hidden"></div>
+      <button id="nextBtn" class="btn hidden" style="margin-top:16px">次の問題 →</button>
+    </div>
+  </section>
+
+  <!-- ========== 結果画面 ========== -->
+  <section id="screen-result" class="panel result hidden">
+    <h2>リザルト</h2>
+    <div class="big" id="finalScore">0</div>
+    <div class="rank" id="rank"></div>
+    <div class="stats">
+      <div class="stat"><div class="v" id="statCorrect">0/0</div><div class="l">正解数</div></div>
+      <div class="stat"><div class="v" id="statAcc">0%</div><div class="l">正答率</div></div>
+      <div class="stat"><div class="v" id="statStreak">0</div><div class="l">最大連答</div></div>
+      <div class="stat"><div class="v" id="statBuzz">0</div><div class="l">早押し回数</div></div>
+    </div>
+    <div class="review" id="reviewWrap">
+      <h3>復習（落とした問題）</h3>
+      <div id="reviewList"></div>
+    </div>
+    <div class="btn-row">
+      <button id="againBtn" class="btn">もう一度</button>
+      <button id="configBtn" class="btn secondary">設定を変える</button>
+    </div>
+  </section>
+
+  <footer>AWS早押しクイズ v6 ・ 静的Webアプリ（ローカル完結 / 通信なし）</footer>
+</div>
+<script src="js/data/questions.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
