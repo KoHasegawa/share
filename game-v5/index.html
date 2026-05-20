@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AWS Cost Auditor Dojo</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand-block">
+        <div class="brand">💴 AWS Cost Auditor Dojo</div>
+        <div class="subtitle">EC2 と RDS を 24h 動かす現場のコスト最適化、500問+</div>
+      </div>
+      <div class="hud">
+        <div class="hud-item"><span class="hud-label">Lv</span><span id="hud-level">1</span></div>
+        <div class="hud-item"><span class="hud-label">XP</span><span id="hud-xp">0</span></div>
+        <div class="hud-item"><span class="hud-label">称号</span><span id="hud-title">見習い</span></div>
+        <div class="hud-item"><span class="hud-label">Best Streak</span><span id="hud-streak">0</span></div>
+        <button id="btn-home" class="ghost-btn hidden">ホームへ</button>
+      </div>
+    </header>
+
+    <main>
+      <!-- ホーム画面 -->
+      <section id="screen-home" class="screen">
+        <div class="hero">
+          <p class="eyebrow">FinOps 道場 / 24h サーバの請求書を読む人</p>
+          <h1>料金の細部まで覚える、AWS コスト最適化ドリル。</h1>
+          <p class="lead">EC2・RDS・EBS・データ転送・RI/SP・コスト管理ツールを、500問以上の問題でしつこく確認します。モダン化は今回は脇に置き、いま動いている <code>24h EC2 + Multi-AZ RDS</code> を素材にコストの細かい話だけを徹底的に。</p>
+        </div>
+
+        <div class="mode-section">
+          <h2>モード選択</h2>
+          <div class="mode-grid" id="mode-grid"></div>
+        </div>
+
+        <div class="topic-section">
+          <h2>トピック別ドリル</h2>
+          <p class="muted">クリックでそのトピックの全問題を順番に演習。正答率はローカルに保存されます。</p>
+          <div class="topic-grid" id="topic-grid"></div>
+        </div>
+
+        <div class="footer-actions">
+          <button id="btn-reset-progress" class="ghost-btn danger">学習履歴をリセット</button>
+          <button id="btn-export" class="ghost-btn">履歴をエクスポート</button>
+        </div>
+      </section>
+
+      <!-- クイズ画面 -->
+      <section id="screen-quiz" class="screen hidden">
+        <div class="quiz-head">
+          <div>
+            <div id="quiz-mode-label" class="eyebrow"></div>
+            <div id="quiz-progress" class="progress-text"></div>
+          </div>
+          <div class="quiz-meta">
+            <span id="quiz-topic" class="pill"></span>
+            <span id="quiz-difficulty" class="pill diff"></span>
+            <span id="quiz-streak" class="pill streak"></span>
+          </div>
+        </div>
+        <div class="progress-bar"><div id="progress-fill"></div></div>
+
+        <div class="question-card">
+          <div id="quiz-type-label" class="type-badge"></div>
+          <div id="quiz-question" class="question-body"></div>
+          <div id="quiz-context" class="context-body hidden"></div>
+          <div id="quiz-answer-area" class="answer-area"></div>
+          <div id="quiz-actions" class="quiz-actions">
+            <button id="btn-submit-answer" class="primary-btn">回答する</button>
+          </div>
+          <div id="quiz-feedback" class="feedback hidden"></div>
+        </div>
+      </section>
+
+      <!-- 結果画面 -->
+      <section id="screen-result" class="screen hidden">
+        <div class="result-head">
+          <div id="result-score-badge" class="score-badge">100%</div>
+          <div>
+            <h2 id="result-title">セッション完了</h2>
+            <p id="result-summary" class="muted"></p>
+            <p id="result-xp" class="xp-line"></p>
+          </div>
+        </div>
+        <div class="result-actions">
+          <button id="btn-retry" class="primary-btn">同じモードでもう一回</button>
+          <button id="btn-review-wrong">間違えた問題だけ復習</button>
+          <button id="btn-result-home" class="ghost-btn">ホームへ</button>
+        </div>
+        <div class="review-list" id="review-list"></div>
+      </section>
+    </main>
+
+    <footer class="page-footer">
+      <span>v5.0 — 2026 / Knowledge base last updated 2026-05</span>
+      <a href="docs/spec.md">仕様書</a>
+      <a href="docs/knowledge.md">ナレッジ集</a>
+    </footer>
+  </div>
+
+  <!-- データ -->
+  <script src="js/data/topics.js"></script>
+  <script src="js/data/q-ec2-pricing.js"></script>
+  <script src="js/data/q-ec2-instance.js"></script>
+  <script src="js/data/q-ebs.js"></script>
+  <script src="js/data/q-network.js"></script>
+  <script src="js/data/q-elb.js"></script>
+  <script src="js/data/q-rds-basic.js"></script>
+  <script src="js/data/q-rds-storage.js"></script>
+  <script src="js/data/q-rds-backup.js"></script>
+  <script src="js/data/q-ri-sp.js"></script>
+  <script src="js/data/q-cost-tools.js"></script>
+  <script src="js/data/q-region-free.js"></script>
+  <script src="js/data/q-calc.js"></script>
+  <script src="js/data/q-scenario.js"></script>
+
+  <!-- アプリ -->
+  <script src="js/util.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/quiz.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
