@@ -8,7 +8,7 @@
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 
   // ---- チューニング値 ----
-  const REVEAL_MS = 55;        // 1文字あたりの表示間隔
+  const REVEAL_MS = 165;       // 1文字あたりの表示間隔
   const ANSWER_MS = 8000;      // 早押し後の回答制限時間
   const KEYS = ["A", "B", "C", "D"];
 
