@@ -8,7 +8,7 @@
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 
   // ---- チューニング値 ----
-  const REVEAL_MS = 55;        // 1文字あたりの表示間隔
+  const REVEAL_MS = 165;       // 1文字あたりの表示間隔
   const ANSWER_MS = 8000;      // 早押し後の回答制限時間
   const KEYS = ["A", "B", "C", "D"];
 
@@ -161,9 +161,8 @@
     q._revealRatio = Math.min(1, revealedChars / totalChars);
     q._auto = auto;
 
-    // 残りの問題文も全部見せる(押した後は全文表示)
-    revealedChars = totalChars;
-    $("#qtext").innerHTML = escapeHtml(q.q);
+    // 早押し時は読み上げ位置で固定（カーソルだけ消す）。全文は回答確定後に表示する
+    $("#qtext").innerHTML = escapeHtml(q.q.slice(0, revealedChars));
 
     $("#buzzArea").classList.add("hidden");
     const wrap = $("#answerArea");
@@ -212,6 +211,9 @@
     clearTimers();
     const q = deck[idx];
     const correct = picked === q.a;
+
+    // 回答確定後は問題文を全文表示（解説と合わせて復習できるように）
+    $("#qtext").innerHTML = escapeHtml(q.q);
 
     // 採点: 正解=基礎50 + スピードボーナス(早く押すほど高い、最大50) + 連答ボーナス
     let pts = 0;
