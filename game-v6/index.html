@@ -12,6 +12,7 @@
 <body>
 <div class="bg-layer"></div>
 <div class="bg-overlay"></div>
+<div id="fx" class="fx-layer"></div>
 
 <div class="wrap">
   <header class="top">
@@ -51,6 +52,13 @@
         <button class="opt" data-v="999">全部</button>
       </div>
     </div>
+    <div class="field">
+      <label>モード</label>
+      <div id="modeOpts" class="opts">
+        <button class="opt sel" data-v="normal">通常（文字数を表示）</button>
+        <button class="opt" data-v="hard">🔥 ヒミツ（文字数を隠す・高得点）</button>
+      </div>
+    </div>
     <div class="avail"><span id="avail"></span></div>
     <button id="startBtn" class="btn btn-go">▶ ゲームスタート</button>
     <p class="howto">
@@ -78,7 +86,7 @@
 
       <div id="answerArea" class="hidden">
         <div class="answer-timer" id="answerBar"><i></i></div>
-        <div class="spell-label">答えを1文字ずつ選べ</div>
+        <div id="spellLabel" class="spell-label">答えを1文字ずつ選べ</div>
         <div id="slots" class="slots"></div>
         <div id="choices" class="choices"></div>
         <div id="feedback" class="feedback hidden"></div>
