@@ -83,6 +83,22 @@
   function show(screen) {
     ["start", "play", "result"].forEach((s) =>
       $("#screen-" + s).classList.toggle("hidden", s !== screen));
+    document.body.classList.toggle("playing", screen === "play");
+  }
+  // 押下リップル（ボタン類のリッチな反応）
+  function addRipple(e) {
+    const el = e.target.closest(".choice,.btn,.buzz,.opt,.mini-btn");
+    if (!el || el.disabled) return;
+    const r = el.getBoundingClientRect();
+    const x = (e.clientX || (r.left + r.width / 2)) - r.left;
+    const y = (e.clientY || (r.top + r.height / 2)) - r.top;
+    const size = Math.max(r.width, r.height) * 1.25;
+    const sp = document.createElement("span");
+    sp.className = "ripple";
+    sp.style.width = sp.style.height = size + "px";
+    sp.style.left = x + "px"; sp.style.top = y + "px";
+    el.appendChild(sp);
+    setTimeout(() => sp.remove(), 500);
   }
 
   /* ===== エフェクト ===== */
@@ -126,7 +142,7 @@
     setTimeout(() => t.remove(), 1100);
   }
   function confetti(n) {
-    const colors = ["#22d3ee", "#ff8a2b", "#e84bd0", "#3fe08a", "#ffd23f"];
+    const colors = ["#ff7a1a", "#ffffff", "#cfd2da", "#e85d04", "#9a9ca6"];
     for (let i = 0; i < n; i++) {
       const p = document.createElement("span");
       p.className = "confetti";
@@ -216,6 +232,9 @@
 
     $("#buzzArea").classList.add("hidden");
     $("#answerArea").classList.remove("hidden");
+    $("#answerBar").classList.remove("hidden");
+    $("#choices").classList.remove("hidden");
+    $("#spellLabel").classList.remove("hidden");
     $("#spellLabel").textContent = config.hideLength
       ? "答えを1文字ずつ（文字数ヒミツ）" : "答えを1文字ずつ選べ";
 
@@ -307,6 +326,10 @@
     $("#qtext").classList.remove("frozen");
     $("#qtext").innerHTML = escapeHtml(q.q);
     $("#answerBar > i").style.width = "0%";
+    // 確定後はタイマー/ラベル/4択を畳み、解説＋次へを画面内に収める
+    $("#answerBar").classList.add("hidden");
+    $("#spellLabel").classList.add("hidden");
+    $("#choices").classList.add("hidden");
 
     renderSlots(q, true);
     $$("#slots .slot").forEach((s, i) => {
@@ -419,6 +442,7 @@
   /* ===== 初期化 ===== */
   document.addEventListener("DOMContentLoaded", () => {
     buildStart();
+    document.addEventListener("pointerdown", addRipple);
     $("#buzzBtn").addEventListener("click", buzz);
     $("#nextBtn").addEventListener("click", nextQuestion);
     $("#quitBtn").addEventListener("click", () => { clearTimers(); show("start"); });
