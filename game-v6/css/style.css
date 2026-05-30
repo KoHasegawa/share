@@ -146,8 +146,9 @@ body.playing .stage{flex:1;display:flex;flex-direction:column;min-height:0}
 .qcard{flex:1;min-height:96px;display:flex;align-items:center;justify-content:center;text-align:center;
   font-size:1.3rem;line-height:1.8;font-weight:700;padding:10px 6px;letter-spacing:.3px}
 .qcard.frozen{color:#fff}
-.qcard .cursor{display:inline-block;width:.7ch;background:var(--orange);border-radius:2px;
-  animation:blink 1s step-end infinite;box-shadow:var(--glow)}
+.qcard .qinner{display:inline-block;max-width:100%;word-break:break-word}
+.qcard .cursor{display:inline-block;width:.45ch;height:1.1em;vertical-align:-0.15em;margin-left:.12em;
+  background:var(--orange);border-radius:2px;animation:blink 1s step-end infinite;box-shadow:var(--glow)}
 @keyframes blink{50%{opacity:0}}
 .qcard .cut{color:var(--orange);font-weight:900;margin-left:2px;animation:blink 1.1s step-end infinite}
 

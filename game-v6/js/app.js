@@ -185,7 +185,7 @@
     if (config.hideLength) tags.push(`<span class="tag hide">🔥 ヒミツ</span>`);
     $("#tags").innerHTML = tags.join("");
 
-    $("#qtext").innerHTML = `<span class="cursor">　</span>`;
+    $("#qtext").innerHTML = `<span class="qinner"><span class="cursor"></span></span>`;
     $("#qtext").classList.remove("frozen");
     $("#buzzArea").classList.remove("hidden");
     $("#buzzBtn").disabled = false;
@@ -205,8 +205,8 @@
   }
   function renderQ(q) {
     const shown = escapeHtml(q.q.slice(0, revealedChars));
-    const cursor = phase === "reveal" ? `<span class="cursor">　</span>` : "";
-    $("#qtext").innerHTML = shown + cursor;
+    const cursor = phase === "reveal" ? `<span class="cursor"></span>` : "";
+    $("#qtext").innerHTML = `<span class="qinner">${shown}${cursor}</span>`;
   }
 
   /* ===== 早押し ===== */
@@ -226,8 +226,10 @@
     q._auto = auto;
 
     // 早押し時点で表示されていた文字だけで固定（残りは伏せる）
-    $("#qtext").innerHTML = escapeHtml(q.q.slice(0, revealedChars))
-      + (auto ? "" : `<span class="cut">…</span>`);
+    $("#qtext").innerHTML = `<span class="qinner">`
+      + escapeHtml(q.q.slice(0, revealedChars))
+      + (auto ? "" : `<span class="cut">…</span>`)
+      + `</span>`;
     $("#qtext").classList.add("frozen");
 
     $("#buzzArea").classList.add("hidden");
@@ -324,7 +326,7 @@
     const q = deck[idx];
 
     $("#qtext").classList.remove("frozen");
-    $("#qtext").innerHTML = escapeHtml(q.q);
+    $("#qtext").innerHTML = `<span class="qinner">${escapeHtml(q.q)}</span>`;
     $("#answerBar > i").style.width = "0%";
     // 確定後はタイマー/ラベル/4択を畳み、解説＋次へを画面内に収める
     $("#answerBar").classList.add("hidden");
