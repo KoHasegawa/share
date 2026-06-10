@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="校正トレーニング">
+<meta name="theme-color" content="#4f46e5">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📧</text></svg>">
+<title>校正トレーニング | メールのミスを見抜く</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+    background: #eef1f7;
+    color: #1f2430;
+    touch-action: manipulation;
+    -webkit-text-size-adjust: 100%;
+    line-height: 1.6;
+  }
+  .screen {
+    max-width: 540px;
+    margin: 0 auto;
+    padding: 16px;
+    padding-top: calc(16px + env(safe-area-inset-top));
+    padding-bottom: calc(110px + env(safe-area-inset-bottom));
+  }
+  .hidden { display: none !important; }
+
+  /* ---- home ---- */
+  .hero {
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    color: #fff;
+    border-radius: 20px;
+    padding: 24px 20px;
+    margin-bottom: 16px;
+  }
+  .hero h1 { margin: 0 0 6px; font-size: 24px; }
+  .hero p { margin: 0; font-size: 14px; opacity: .92; }
+  .card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 14px;
+    box-shadow: 0 1px 4px rgba(20,24,40,.06);
+  }
+  .card h2 { margin: 0 0 10px; font-size: 16px; }
+  .rules { font-size: 14px; color: #444b5e; margin: 0; padding-left: 1.2em; }
+  .rules li { margin-bottom: 4px; }
+  .diff-btn {
+    display: block; width: 100%;
+    border: none; border-radius: 14px;
+    padding: 14px 16px; margin-bottom: 10px;
+    text-align: left; cursor: pointer;
+    font-family: inherit;
+    color: #fff;
+  }
+  .diff-btn .t { font-size: 17px; font-weight: 700; }
+  .diff-btn .d { font-size: 12.5px; opacity: .9; margin-top: 2px; }
+  .diff-easy   { background: linear-gradient(135deg, #10b981, #059669); }
+  .diff-normal { background: linear-gradient(135deg, #f59e0b, #ea580c); }
+  .diff-hard   { background: linear-gradient(135deg, #ef4444, #be185d); }
+  .stat-grid { display: flex; gap: 10px; text-align: center; }
+  .stat-grid > div { flex: 1; background: #f4f5fb; border-radius: 12px; padding: 10px 4px; }
+  .stat-grid .num { font-size: 20px; font-weight: 800; color: #4f46e5; }
+  .stat-grid .lab { font-size: 11px; color: #6b7280; }
+  .weakness { margin-top: 10px; font-size: 13.5px; background: #fff7ed; border: 1px solid #fdba74; border-radius: 10px; padding: 8px 12px; color: #9a3412; }
+  .link-btn { background: none; border: none; color: #94a3b8; font-size: 12px; text-decoration: underline; padding: 8px; font-family: inherit; }
+
+  /* ---- play ---- */
+  .play-head {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 13px; color: #4b5563; margin-bottom: 10px; flex-wrap: wrap; gap: 4px;
+  }
+  .play-head .qnum { font-weight: 800; color: #1f2430; font-size: 15px; }
+  .badge { display: inline-block; background: #e0e7ff; color: #4338ca; border-radius: 999px; padding: 1px 10px; font-size: 12px; font-weight: 600; }
+  .hint { font-size: 13px; color: #6b7280; margin: 0 0 10px; }
+
+  .mail {
+    background: #fff; border-radius: 16px; overflow: hidden;
+    box-shadow: 0 1px 5px rgba(20,24,40,.08);
+    margin-bottom: 12px;
+  }
+  .mail-meta {
+    background: #f8fafc; border-bottom: 1px solid #e5e9f2;
+    padding: 8px 14px; font-size: 11.5px; color: #94a3b8;
+  }
+  .seg {
+    padding: 10px 14px;
+    border-left: 4px solid transparent;
+    white-space: pre-line;
+    font-size: 14.5px;
+    user-select: none; -webkit-user-select: none;
+    position: relative;
+    cursor: pointer;
+  }
+  .seg + .seg { border-top: 1px solid #f1f4f9; }
+  .seg.subject { font-weight: 700; background: #f8fafc; font-size: 15px; }
+  .seg.subject::before { content: "件名："; color: #94a3b8; font-weight: 400; font-size: 12px; }
+  .seg.sig { color: #6b7280; font-size: 12.5px; }
+  .seg.marked { background: #fef3c7; border-left-color: #f59e0b; }
+  .seg.marked::after { content: "⚠️ ミスかも"; display: block; font-size: 11px; color: #b45309; font-weight: 700; }
+  .seg.hit   { background: #dcfce7 !important; border-left-color: #16a34a; }
+  .seg.miss  { background: #fee2e2 !important; border-left-color: #dc2626; }
+  .seg.false { background: #ffedd5 !important; border-left-color: #f97316; }
+  .seg .tag { display: block; font-size: 11.5px; font-weight: 800; margin-top: 2px; }
+  .seg.hit .tag { color: #15803d; }
+  .seg.miss .tag { color: #b91c1c; }
+  .seg.false .tag { color: #c2410c; }
+  .seg.revealed { cursor: default; }
+
+  .cal-toggle {
+    background: #fff; border: 1px solid #d7dcea; color: #4f46e5;
+    border-radius: 12px; padding: 9px 14px; font-size: 13.5px; font-weight: 600;
+    font-family: inherit; width: 100%; cursor: pointer; margin-bottom: 12px;
+  }
+  .cal-wrap { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 12px; -webkit-overflow-scrolling: touch; }
+  .cal {
+    background: #fff; border-radius: 12px; padding: 10px; min-width: 230px;
+    box-shadow: 0 1px 4px rgba(20,24,40,.06); font-size: 12px;
+  }
+  .cal h3 { margin: 0 0 6px; font-size: 13px; text-align: center; }
+  .cal table { border-collapse: collapse; width: 100%; }
+  .cal th, .cal td { text-align: center; padding: 2.5px 0; width: 14.28%; }
+  .cal th { color: #6b7280; font-weight: 600; }
+  .cal th.sun, .cal td.sun { color: #dc2626; }
+  .cal th.sat, .cal td.sat { color: #2563eb; }
+  .cal td.today { background: #4f46e5; color: #fff !important; border-radius: 999px; font-weight: 800; }
+
+  .fb { margin-bottom: 12px; }
+  .fb-head { font-size: 17px; font-weight: 800; margin: 0 0 8px; }
+  .fb-head.good { color: #15803d; }
+  .fb-head.bad { color: #b91c1c; }
+  .err-card {
+    background: #fff; border-radius: 12px; padding: 12px 14px; margin-bottom: 8px;
+    border-left: 4px solid #4f46e5; box-shadow: 0 1px 3px rgba(20,24,40,.06);
+    font-size: 13.5px;
+  }
+  .err-card .etype { font-size: 11.5px; font-weight: 800; color: #4f46e5; }
+  .err-card.found-yes { border-left-color: #16a34a; }
+  .err-card.found-no  { border-left-color: #dc2626; }
+  .fa-note { font-size: 13px; color: #c2410c; background: #fff7ed; border-radius: 10px; padding: 8px 12px; }
+
+  .bottom-bar {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    background: rgba(238,241,247,.92);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid #dde2ee;
+  }
+  .bottom-bar .inner { max-width: 540px; margin: 0 auto; }
+  .main-btn {
+    display: block; width: 100%;
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    color: #fff; border: none; border-radius: 14px;
+    padding: 15px; font-size: 16.5px; font-weight: 800;
+    font-family: inherit; cursor: pointer;
+  }
+  .main-btn:active { transform: scale(.98); }
+  .main-btn.ghost { background: #fff; color: #4f46e5; border: 1.5px solid #c7cdf4; }
+  .sub-note { text-align: center; font-size: 11.5px; color: #8b93a8; margin: 6px 0 0; }
+
+  /* ---- result ---- */
+  .score-big { text-align: center; padding: 8px 0 4px; }
+  .score-big .pts { font-size: 44px; font-weight: 900; color: #4f46e5; line-height: 1.1; }
+  .score-big .lab { font-size: 13px; color: #6b7280; }
+  .res-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .res-table th, .res-table td { padding: 7px 4px; border-bottom: 1px solid #eef0f7; text-align: left; }
+  .res-table td.num { text-align: right; font-weight: 700; }
+  .tip { background: #eef2ff; border-radius: 10px; padding: 10px 12px; font-size: 13.5px; margin-bottom: 8px; color: #3730a3; }
+  .tip b { display: block; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<!-- ============ HOME ============ -->
+<div id="home" class="screen">
+  <div class="hero">
+    <h1>📧 校正トレーニング</h1>
+    <p>ビジネスメールに紛れ込んだ「日付ミス」「表記揺れ」「誤字」を見抜いて、注意力を鍛えよう。</p>
+  </div>
+
+  <div class="card">
+    <h2>あそびかた</h2>
+    <ol class="rules">
+      <li>メールが1通表示されます(全5問)</li>
+      <li>「ミスがある」と思う行をタップしてマーク</li>
+      <li>ミスが無いと思ったら、何もマークせずに回答</li>
+      <li>答え合わせで、見抜く力の傾向がわかります</li>
+    </ol>
+  </div>
+
+  <button class="diff-btn diff-easy" onclick="startSession('easy')">
+    <div class="t">🌱 やさしい</div>
+    <div class="d">ミスは必ず1つ。わかりやすいミスだけ。</div>
+  </button>
+  <button class="diff-btn diff-normal" onclick="startSession('normal')">
+    <div class="t">🔥 ふつう</div>
+    <div class="d">ミスは1〜2個。日付・表記揺れも登場。</div>
+  </button>
+  <button class="diff-btn diff-hard" onclick="startSession('hard')">
+    <div class="t">⚡ むずかしい</div>
+    <div class="d">ミスは0〜3個。「ミスなし」の場合もある。巧妙なミス中心。</div>
+  </button>
+
+  <div class="card" id="home-stats"></div>
+  <div style="text-align:center"><button class="link-btn" onclick="resetStats()">成績データをリセット</button></div>
+</div>
+
+<!-- ============ PLAY ============ -->
+<div id="play" class="screen hidden">
+  <div class="play-head">
+    <span class="qnum" id="qnum"></span>
+    <span class="badge" id="diff-badge"></span>
+    <span id="today-label"></span>
+  </div>
+  <p class="hint" id="hint">🔍 ミスがあると思う行をタップしてマーク → 下の回答ボタンへ</p>
+
+  <div class="mail">
+    <div class="mail-meta" id="mail-meta"></div>
+    <div id="email"></div>
+  </div>
+
+  <button class="cal-toggle" id="cal-toggle" onclick="toggleCal()">📅 カレンダーを開く(曜日の確認に)</button>
+  <div class="cal-wrap hidden" id="cal-wrap"></div>
+
+  <div class="fb hidden" id="fb"></div>
+
+  <div class="bottom-bar">
+    <div class="inner">
+      <button class="main-btn" id="action-btn" onclick="onAction()"></button>
+      <p class="sub-note" id="action-note"></p>
+    </div>
+  </div>
+</div>
+
+<!-- ============ RESULT ============ -->
+<div id="result" class="screen hidden">
+  <div class="card">
+    <div class="score-big">
+      <div class="pts" id="res-score"></div>
+      <div class="lab">スコア</div>
+    </div>
+    <div class="stat-grid" id="res-grid"></div>
+  </div>
+  <div class="card">
+    <h2>カテゴリ別(今回)</h2>
+    <table class="res-table" id="res-table"></table>
+  </div>
+  <div class="card" id="res-advice"></div>
+  <div class="bottom-bar">
+    <div class="inner">
+      <button class="main-btn" onclick="startSession(session.diff)">もう一度(同じ難易度)</button>
+      <p class="sub-note"><a href="javascript:goHome()" style="color:#4f46e5">ホームに戻る</a></p>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== PURE_LOGIC_START =====
+"use strict";
+
+const WDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+const QUESTIONS_PER_SESSION = 5;
+
+const TYPE_LABEL = {
+  date: "日付・曜日のミス",
+  consistency: "数字・内容の食い違い",
+  logic: "つじつま・前後関係",
+  notation: "表記揺れ",
+  typo: "誤字・脱字"
+};
+
+const TIPS = {
+  date: "日付を書いたら必ずカレンダーで曜日を確認するクセを。アプリ内の📅カレンダーを開くひと手間が、実務での「カレンダーを見る習慣」になります。",
+  consistency: "同じ数字・番号・名称が2回出てきたら、送信前に必ず指差しで突き合わせましょう。「2回出てくる情報は疑う」が合言葉です。",
+  logic: "「返信期限は開催日より前か」「終了時刻は開始より後か」など、時間の前後関係を意識して読むと矛盾に気づけます。",
+  notation: "同じ言葉が別の書き方になっていないかを単語単位でチェック。実務ではエディタの検索(Ctrl+F)で出現箇所を数えるのが有効です。",
+  typo: "黙読では脳が自動補完してしまいます。声に出して(または心の中でゆっくり音読して)読み直すと脱字に気づきやすくなります。"
+};
+
+function randInt(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+function addDays(d, n) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() + n); return x; }
+function wd(d) { return WDAYS[d.getDay()]; }
+function wrongWd(d) { return pick(WDAYS.filter(w => w !== wd(d))); }
+function fmtMD(d) { return `${d.getMonth() + 1}月${d.getDate()}日`; }
+function fmtMDW(d) { return `${fmtMD(d)}（${wd(d)}）`; }
+function fmtTimeMin(min) { return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, "0")}`; }
+function fmtYen(n) { return n.toLocaleString("ja-JP"); }
+
+function mutateAmount(n) {
+  let m = n;
+  while (m === n || m <= 0) m = n + pick([-1, 1]) * pick([1000, 9000, 10000, 90000]);
+  return m;
+}
+function mutateDigitStr(s) {
+  // 末尾の数字1桁を別の数字に変える
+  return s.replace(/\d(?=\D*$)/, d => String((Number(d) + randInt(1, 9)) % 10));
+}
+
+const CLIENTS = [
+  ["株式会社山田商事", "田中"], ["佐藤工業株式会社", "鈴木"],
+  ["株式会社グリーンテック", "高橋"], ["大和物産株式会社", "伊藤"],
+  ["株式会社ミライ企画", "渡辺"], ["北斗システム株式会社", "中村"]
+];
+const ME = { co: "株式会社サンプル商事", name: "営業部 川村", tel: "03-1234-5678", mail: "kawamura@example.co.jp" };
+
+function seg(kind, text) { return { kind, text }; }
+
+/* ---------- シナリオ1: 打ち合わせのご案内 ---------- */
+function genMeeting() {
+  const today = new Date();
+  const d = addDays(today, randInt(7, 24));
+  const startMin = randInt(10, 16) * 60 + pick([0, 30]);
+  const endMin = startMin + pick([60, 90]);
+  const replyBy = addDays(d, -randInt(3, 5));
+  const topic = pick(["新システム導入", "次期プロジェクト", "販売促進施策", "業務フロー改善", "新製品の仕様"]);
+  const place = pick(["弊社3階 第2会議室", "貴社 会議室", "オンライン（Zoom）", "弊社本社 5階会議室"]);
+  const [co, person] = pick(CLIENTS);
+
+  const segs = [
+    seg("subject", `【ご案内】${topic}に関する打ち合わせ（${fmtMD(d)}）`),
+    seg("line", `${co}\n${person}様`),
+    seg("line", `いつもお世話になっております。${ME.co}の${ME.name}です。`),
+    seg("line", `標記の件につきまして、下記のとおり打ち合わせを開催いたしますので、ご出席のほどよろしくお願いいたします。`),
+    seg("line", `■ 日時：${fmtMDW(d)} ${fmtTimeMin(startMin)}〜${fmtTimeMin(endMin)}`),
+    seg("line", `■ 場所：${place}`),
+    seg("line", `■ 議題：${topic}の進め方について`),
+    seg("line", `ご都合がつかない場合は、${fmtMDW(replyBy)}までにご連絡いただけますと幸いです。`),
+    seg("line", `お忙しいところ恐縮ですが、ご確認のほどよろしくお願いいたします。`),
+    seg("sig", `${ME.co}　${ME.name}\nTEL：${ME.tel}　MAIL：${ME.mail}`)
+  ];
+
+  const slots = [
+    { type: "date", subtle: true, segs: [4], apply() {
+        const w = wrongWd(d);
+        segs[4].text = segs[4].text.replace(`（${wd(d)}）`, `（${w}）`);
+        return `${fmtMD(d)}は「${wd(d)}曜日」ですが、（${w}）と書かれています。日付を書いたら曜日をカレンダーで確認!`;
+    }},
+    { type: "consistency", subtle: true, segs: [0, 4], apply() {
+        const d2 = addDays(d, pick([-1, 1, 2, 7]));
+        segs[0].text = segs[0].text.replace(fmtMD(d), fmtMD(d2));
+        return `件名は「${fmtMD(d2)}」、本文の日時欄は「${fmtMD(d)}」。同じ日付が2か所に出てきたら必ず突き合わせを。`;
+    }},
+    { type: "logic", subtle: true, segs: [7], apply() {
+        const nd = addDays(d, randInt(1, 3));
+        segs[7].text = segs[7].text.replace(fmtMDW(replyBy), fmtMDW(nd));
+        return `返信期限（${fmtMD(nd)}）が開催日（${fmtMD(d)}）より後になっています。期限は開催日より前でなければ意味がありません。`;
+    }},
+    { type: "logic", subtle: false, segs: [4], apply() {
+        const bad = startMin - 30;
+        segs[4].text = segs[4].text.replace(`〜${fmtTimeMin(endMin)}`, `〜${fmtTimeMin(bad)}`);
+        return `終了時刻（${fmtTimeMin(bad)}）が開始時刻（${fmtTimeMin(startMin)}）より前になっています。`;
+    }},
+    { type: "typo", subtle: false, segs: [2], apply() {
+        segs[2].text = segs[2].text.replace("お世話になっております", "お世話になっおります");
+        return `「お世話になっおります」→ 正しくは「お世話になっております」。「て」が抜けています(脱字)。`;
+    }},
+    { type: "typo", subtle: false, segs: [8], apply() {
+        segs[8].text = segs[8].text.replace("お願いいたします", "お願いいたしす");
+        return `「お願いいたしす」→ 正しくは「お願いいたします」。「ま」が抜けています(脱字)。`;
+    }},
+    { type: "notation", subtle: true, segs: [3, 0], apply() {
+        segs[3].text = segs[3].text.replace("打ち合わせ", "打合せ");
+        return `件名では「打ち合わせ」、本文では「打合せ」と表記が混在しています。どちらかに統一しましょう(表記揺れ)。`;
+    }}
+  ];
+  return { from: `${ME.mail}`, segments: segs, slots };
+}
+
+/* ---------- シナリオ2: 請求書送付のご案内 ---------- */
+function genInvoice() {
+  const today = new Date();
+  const m = today.getMonth() === 0 ? 12 : today.getMonth();
+  const amount = randInt(8, 95) * 10000 + pick([0, 5000]);
+  const no = `INV-${today.getFullYear()}-${randInt(100, 999)}`;
+  const due = addDays(today, randInt(20, 35));
+  const [co, person] = pick(CLIENTS);
+
+  const segs = [
+    seg("subject", `${m}月分請求書送付のご案内（請求書番号：${no}）`),
+    seg("line", `${co}\n${person}様`),
+    seg("line", `いつもお世話になっております。${ME.co} 経理担当の${ME.name}です。`),
+    seg("line", `${m}月分の請求書を添付ファイルにてお送りいたしますので、ご査収のほどよろしくお願いいたします。`),
+    seg("line", `■ ご請求金額：${fmtYen(amount)}円（税込）`),
+    seg("line", `■ お支払期限：${fmtMDW(due)}`),
+    seg("line", `■ 請求書番号：${no}`),
+    seg("line", `お振込の際は、${fmtYen(amount)}円を請求書記載の口座までお願いいたします。なお、振込手数料は貴社にてご負担いただけますと幸いです。`),
+    seg("line", `ご不明な点がございましたら、お気軽にお問い合わせください。`),
+    seg("sig", `${ME.co}　${ME.name}\nTEL：${ME.tel}　MAIL：${ME.mail}`)
+  ];
+
+  const slots = [
+    { type: "date", subtle: true, segs: [5], apply() {
+        const w = wrongWd(due);
+        segs[5].text = segs[5].text.replace(`（${wd(due)}）`, `（${w}）`);
+        return `${fmtMD(due)}は「${wd(due)}曜日」ですが、（${w}）と書かれています。`;
+    }},
+    { type: "logic", subtle: true, segs: [5], apply() {
+        const past = addDays(today, -randInt(3, 10));
+        segs[5].text = segs[5].text.replace(fmtMDW(due), fmtMDW(past));
+        return `支払期限（${fmtMD(past)}）がすでに過ぎた日付になっています(今日は${fmtMD(today)})。期限は未来の日付かを確認!`;
+    }},
+    { type: "consistency", subtle: false, segs: [7, 4], apply() {
+        const bad = mutateAmount(amount);
+        segs[7].text = segs[7].text.replace(`${fmtYen(amount)}円`, `${fmtYen(bad)}円`);
+        return `請求金額欄は「${fmtYen(amount)}円」なのに、振込のお願いでは「${fmtYen(bad)}円」。金額が2回出てきたら必ず一致確認を。`;
+    }},
+    { type: "consistency", subtle: true, segs: [6, 0], apply() {
+        const bad = mutateDigitStr(no);
+        segs[6].text = segs[6].text.replace(no, bad);
+        return `件名の請求書番号は「${no}」、本文では「${bad}」。番号・IDは1桁違いに要注意。`;
+    }},
+    { type: "typo", subtle: false, segs: [3], apply() {
+        segs[3].text = segs[3].text.replace("請求書", "請求所");
+        return `「請求所」→ 正しくは「請求書」。漢字の変換ミスです。`;
+    }},
+    { type: "notation", subtle: true, segs: [7, 3], apply() {
+        segs[7].text = segs[7].text.replace("お願いいたします", "お願い致します");
+        return `「いたします」(ひらがな)と「致します」(漢字)が本文内で混在しています(表記揺れ)。`;
+    }}
+  ];
+  return { from: `${ME.mail}`, segments: segs, slots };
+}
+
+/* ---------- シナリオ3: 納品日のご連絡 ---------- */
+function genDelivery() {
+  const today = new Date();
+  const product = pick(["ノートパソコン", "24インチモニター", "ワイヤレスキーボード", "オフィスチェア", "複合機用トナー"]);
+  const qty = pick([10, 15, 20, 30, 50]);
+  const d = addDays(today, randInt(5, 15));
+  const [co, person] = pick(CLIENTS);
+
+  const segs = [
+    seg("subject", `${product} 納品日のご連絡`),
+    seg("line", `${co}\n${person}様`),
+    seg("line", `いつもお世話になっております。${ME.co}の${ME.name}です。`),
+    seg("line", `ご注文いただきました${product}（${qty}台）につきまして、納品日が確定いたしましたのでご連絡いたします。`),
+    seg("line", `■ 納品日：${fmtMDW(d)} 午前中`),
+    seg("line", `■ 数量：${qty}台`),
+    seg("line", `■ 納品場所：貴社1階 受付`),
+    seg("line", `当日は納品書を持参いたしますので、ご確認のうえ受領印をお願いいたします。`),
+    seg("line", `今後ともよろしくお願い申し上げます。`),
+    seg("sig", `${ME.co}　${ME.name}\nTEL：${ME.tel}　MAIL：${ME.mail}`)
+  ];
+
+  const slots = [
+    { type: "date", subtle: true, segs: [4], apply() {
+        const w = wrongWd(d);
+        segs[4].text = segs[4].text.replace(`（${wd(d)}）`, `（${w}）`);
+        return `${fmtMD(d)}は「${wd(d)}曜日」ですが、（${w}）と書かれています。`;
+    }},
+    { type: "consistency", subtle: false, segs: [5, 3], apply() {
+        const bad = qty + pick([5, 10, qty]);
+        segs[5].text = segs[5].text.replace(`${qty}台`, `${bad}台`);
+        return `本文冒頭は「${qty}台」なのに数量欄は「${bad}台」。数量の食い違いは実害が大きいミスです。`;
+    }},
+    { type: "consistency", subtle: false, segs: [0, 3], apply() {
+        const other = pick(["デスクトップパソコン", "27インチモニター", "ワイヤレスマウス", "応接用ソファ", "プリンター用紙"].filter(p => p !== product));
+        segs[0].text = segs[0].text.replace(product, other);
+        return `件名は「${other}」、本文は「${product}」。件名と本文の品名が食い違っています。`;
+    }},
+    { type: "typo", subtle: false, segs: [7], apply() {
+        segs[7].text = segs[7].text.replace("受領印", "受領員");
+        return `「受領員」→ 正しくは「受領印」。漢字の変換ミスです。`;
+    }},
+    { type: "typo", subtle: false, segs: [8], apply() {
+        segs[8].text = segs[8].text.replace("申し上げます", "申し上げまず");
+        return `「申し上げまず」→ 正しくは「申し上げます」。「す」と「ず」のタイプミスです。`;
+    }},
+    { type: "notation", subtle: true, segs: [5, 3], apply() {
+        segs[5].text = segs[5].text.replace(`${qty}台`, `${qty}個`);
+        return `本文では「${qty}台」、数量欄では「${qty}個」。単位(助数詞)の表記が揃っていません(表記揺れ)。`;
+    }}
+  ];
+  return { from: `${ME.mail}`, segments: segs, slots };
+}
+
+const GENERATORS = [genMeeting, genInvoice, genDelivery];
+
+function errorCountFor(diff) {
+  if (diff === "easy") return 1;
+  if (diff === "normal") return randInt(1, 2);
+  return Math.random() < 0.15 ? 0 : randInt(1, 3);
+}
+
+function buildQuestion(diff) {
+  const { from, segments, slots } = pick(GENERATORS)();
+  const n = errorCountFor(diff);
+  let pool = slots.slice();
+  if (diff === "easy") pool = pool.filter(s => !s.subtle);
+  shuffle(pool);
+  if (diff === "hard") pool.sort((a, b) => (b.subtle ? 1 : 0) - (a.subtle ? 1 : 0));
+  const used = new Set();
+  const errors = [];
+  for (const slot of pool) {
+    if (errors.length >= n) break;
+    if (slot.segs.some(i => used.has(i))) continue;
+    const explanation = slot.apply();
+    slot.segs.forEach(i => used.add(i));
+    errors.push({ type: slot.type, segs: slot.segs.slice(), explanation });
+  }
+  return { from, segments, errors };
+}
+
+// 回答を採点する。marked = タップされたセグメント番号のSet
+function gradeQuestion(question, marked) {
+  const inErr = new Set();
+  let hits = 0, misses = 0;
+  for (const err of question.errors) {
+    err.segs.forEach(i => inErr.add(i));
+    err.found = err.segs.some(i => marked.has(i));
+    if (err.found) hits++; else misses++;
+  }
+  const falseAlarms = [...marked].filter(i => !inErr.has(i)).length;
+  const noErrorCorrect = question.errors.length === 0 && marked.size === 0;
+  const perfect = falseAlarms === 0 && misses === 0;
+  const score = Math.max(0, hits * 100 + (noErrorCorrect ? 100 : 0) - falseAlarms * 30);
+  return { hits, misses, falseAlarms, noErrorCorrect, perfect, score };
+}
+// ===== PURE_LOGIC_END =====
+
+/* ================= UI ================= */
+
+const STORE_KEY = "kosei-trainer-stats-v1";
+const DIFF_LABEL = { easy: "やさしい", normal: "ふつう", hard: "むずかしい" };
+
+function loadStats() {
+  try {
+    const s = JSON.parse(localStorage.getItem(STORE_KEY));
+    if (s && s.byType) return s;
+  } catch (e) {}
+  const byType = {};
+  for (const t of Object.keys(TYPE_LABEL)) byType[t] = { f: 0, m: 0 };
+  return { questions: 0, found: 0, missed: 0, fa: 0, sessions: 0, best: 0, byType };
+}
+function saveStats(s) { try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) {} }
+let stats = loadStats();
+
+let session = null; // {diff, qIndex, questions:[], marked:Set, revealed, results:[], times:[], qStart}
+
+function $(id) { return document.getElementById(id); }
+function show(id) {
+  for (const s of ["home", "play", "result"]) $(s).classList.toggle("hidden", s !== id);
+  window.scrollTo(0, 0);
+}
+
+/* ---------- home ---------- */
+function renderHome() {
+  const el = $("home-stats");
+  if (stats.questions === 0) {
+    el.innerHTML = `<h2>これまでの成績</h2><p style="font-size:13.5px;color:#6b7280;margin:0">まだ記録がありません。まずは「やさしい」から!</p>`;
+    return;
+  }
+  const denom = stats.found + stats.missed;
+  const rate = denom ? Math.round(stats.found / denom * 100) : 0;
+  let html = `<h2>これまでの成績</h2>
+    <div class="stat-grid">
+      <div><div class="num">${stats.questions}</div><div class="lab">挑戦した問題</div></div>
+      <div><div class="num">${rate}%</div><div class="lab">ミス発見率</div></div>
+      <div><div class="num">${stats.best}</div><div class="lab">ベストスコア</div></div>
+    </div>`;
+  // 苦手カテゴリ(3回以上出題されたものの中で見逃し率最大)
+  let worst = null, worstRate = 0.3; // 30%以上見逃しているものだけ表示
+  for (const [t, v] of Object.entries(stats.byType)) {
+    const d = v.f + v.m;
+    if (d >= 3 && v.m / d > worstRate) { worst = t; worstRate = v.m / d; }
+  }
+  if (worst) {
+    html += `<div class="weakness">⚠️ 苦手傾向：<b>${TYPE_LABEL[worst]}</b>(見逃し率 ${Math.round(worstRate * 100)}%)<br>${TIPS[worst]}</div>`;
+  }
+  el.innerHTML = html;
+}
+function resetStats() {
+  if (!confirm("これまでの成績データを削除しますか?")) return;
+  localStorage.removeItem(STORE_KEY);
+  stats = loadStats();
+  renderHome();
+}
+
+/* ---------- play ---------- */
+function startSession(diff) {
+  session = {
+    diff, qIndex: 0,
+    questions: Array.from({ length: QUESTIONS_PER_SESSION }, () => buildQuestion(diff)),
+    results: [], times: [],
+    marked: new Set(), revealed: false, qStart: 0
+  };
+  show("play");
+  renderQuestion();
+}
+
+function renderQuestion() {
+  const q = session.questions[session.qIndex];
+  session.marked = new Set();
+  session.revealed = false;
+  session.qStart = Date.now();
+
+  $("qnum").textContent = `問題 ${session.qIndex + 1} / ${QUESTIONS_PER_SESSION}`;
+  $("diff-badge").textContent = DIFF_LABEL[session.diff];
+  const today = new Date();
+  $("today-label").textContent = `今日：${fmtMDW(today)}`;
+  $("mail-meta").textContent = `差出人：${q.from}`;
+  $("hint").classList.remove("hidden");
+  $("fb").classList.add("hidden");
+  $("fb").innerHTML = "";
+
+  const box = $("email");
+  box.innerHTML = "";
+  q.segments.forEach((s, i) => {
+    const div = document.createElement("div");
+    div.className = `seg ${s.kind}`;
+    div.textContent = s.text;
+    div.dataset.i = i;
+    div.addEventListener("click", () => toggleMark(i, div));
+    box.appendChild(div);
+  });
+  updateActionBtn();
+}
+
+function toggleMark(i, div) {
+  if (session.revealed) return;
+  if (session.marked.has(i)) { session.marked.delete(i); div.classList.remove("marked"); }
+  else { session.marked.add(i); div.classList.add("marked"); }
+  updateActionBtn();
+}
+
+function updateActionBtn() {
+  const btn = $("action-btn"), note = $("action-note");
+  if (session.revealed) {
+    btn.textContent = session.qIndex + 1 < QUESTIONS_PER_SESSION ? "次の問題へ ▶" : "結果を見る 🏁";
+    note.textContent = "";
+  } else if (session.marked.size === 0) {
+    btn.textContent = "「ミスなし」で回答する";
+    note.textContent = "ミスがあると思う行をタップするとマークできます";
+  } else {
+    btn.textContent = `回答する（${session.marked.size}か所マーク中）`;
+    note.textContent = "";
+  }
+}
+
+function onAction() {
+  if (!session.revealed) reveal();
+  else nextQuestion();
+}
+
+function reveal() {
+  const q = session.questions[session.qIndex];
+  const res = gradeQuestion(q, session.marked);
+  session.revealed = true;
+  session.results.push(res);
+  session.times.push(Date.now() - session.qStart);
+
+  // 通算成績へ反映(途中離脱しても残るように毎問保存)
+  stats.questions++;
+  stats.found += res.hits;
+  stats.missed += res.misses;
+  stats.fa += res.falseAlarms;
+  for (const err of q.errors) stats.byType[err.type][err.found ? "f" : "m"]++;
+  saveStats(stats);
+
+  // セグメントの色分け
+  const inErrFound = new Set(), inErrMissed = new Set();
+  for (const err of q.errors) {
+    const target = err.found ? inErrFound : inErrMissed;
+    err.segs.forEach(i => target.add(i));
+  }
+  document.querySelectorAll("#email .seg").forEach(div => {
+    const i = Number(div.dataset.i);
+    div.classList.add("revealed");
+    div.classList.remove("marked");
+    let cls = null, tag = null;
+    if (inErrFound.has(i)) { cls = "hit"; tag = "✓ 発見!"; }
+    else if (inErrMissed.has(i)) { cls = "miss"; tag = "✗ 見逃し…ここにミスが!"; }
+    else if (session.marked.has(i)) { cls = "false"; tag = "△ ここはミスではありません"; }
+    if (cls) {
+      div.classList.add(cls);
+      const t = document.createElement("span");
+      t.className = "tag"; t.textContent = tag;
+      div.appendChild(t);
+    }
+  });
+
+  // フィードバックパネル
+  const fb = $("fb");
+  let head, headCls;
+  if (q.errors.length === 0) {
+    head = res.noErrorCorrect ? "🎉 正解! このメールにミスはありませんでした" : "😣 残念…このメールにミスはありませんでした";
+    headCls = res.noErrorCorrect ? "good" : "bad";
+  } else if (res.perfect) { head = `🎉 完璧! ミス${q.errors.length}個をすべて発見`; headCls = "good"; }
+  else if (res.hits > 0) { head = `🔍 発見 ${res.hits} / ${q.errors.length} 個`; headCls = "bad"; }
+  else { head = `😣 ミス${q.errors.length}個をすべて見逃し…`; headCls = "bad"; }
+
+  let html = `<div class="fb-head ${headCls}">${head}</div>`;
+  for (const err of q.errors) {
+    html += `<div class="err-card ${err.found ? "found-yes" : "found-no"}">
+      <span class="etype">${err.found ? "✓" : "✗"} ${TYPE_LABEL[err.type]}</span><br>${err.explanation}</div>`;
+  }
+  if (res.falseAlarms > 0) {
+    html += `<div class="fa-note">△ ミスではない行を${res.falseAlarms}か所マークしていました。疑いすぎにも注意(−30点/か所)。</div>`;
+  }
+  fb.innerHTML = html;
+  fb.classList.remove("hidden");
+  $("hint").classList.add("hidden");
+  updateActionBtn();
+  fb.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function nextQuestion() {
+  if (session.qIndex + 1 < QUESTIONS_PER_SESSION) {
+    session.qIndex++;
+    renderQuestion();
+    window.scrollTo(0, 0);
+  } else {
+    finishSession();
+  }
+}
+
+/* ---------- result ---------- */
+function finishSession() {
+  const totalScore = session.results.reduce((a, r) => a + r.score, 0);
+  const hits = session.results.reduce((a, r) => a + r.hits, 0);
+  const misses = session.results.reduce((a, r) => a + r.misses, 0);
+  const fa = session.results.reduce((a, r) => a + r.falseAlarms, 0);
+  const perfects = session.results.filter(r => r.perfect).length;
+  const avgSec = Math.round(session.times.reduce((a, b) => a + b, 0) / session.times.length / 1000);
+
+  stats.sessions++;
+  if (totalScore > stats.best) stats.best = totalScore;
+  saveStats(stats);
+
+  $("res-score").textContent = totalScore;
+  $("res-grid").innerHTML = `
+    <div><div class="num">${perfects}/${QUESTIONS_PER_SESSION}</div><div class="lab">完璧な回答</div></div>
+    <div><div class="num">${hits}/${hits + misses}</div><div class="lab">ミス発見</div></div>
+    <div><div class="num">${fa}</div><div class="lab">誤マーク</div></div>
+    <div><div class="num">${avgSec}秒</div><div class="lab">平均回答時間</div></div>`;
+
+  // カテゴリ別(今回のセッション)
+  const byType = {};
+  for (const q of session.questions) {
+    for (const err of q.errors) {
+      byType[err.type] = byType[err.type] || { f: 0, m: 0 };
+      byType[err.type][err.found ? "f" : "m"]++;
+    }
+  }
+  let rows = `<tr><th>カテゴリ</th><th style="text-align:right">発見 / 出題</th></tr>`;
+  for (const [t, v] of Object.entries(byType)) {
+    rows += `<tr><td>${TYPE_LABEL[t]}</td><td class="num">${v.f} / ${v.f + v.m} ${v.m === 0 ? "✓" : "⚠️"}</td></tr>`;
+  }
+  if (Object.keys(byType).length === 0) rows += `<tr><td colspan="2">今回はミスなし問題のみでした</td></tr>`;
+  $("res-table").innerHTML = rows;
+
+  // アドバイス: 今回見逃したカテゴリのTIPSを表示
+  let advice = `<h2>💡 次へのヒント</h2>`;
+  const missedTypes = Object.entries(byType).filter(([, v]) => v.m > 0).sort((a, b) => b[1].m - a[1].m);
+  if (missedTypes.length === 0) {
+    advice += `<div class="tip">見逃しゼロ! この調子で難易度を上げてみましょう。実務でも「送信前に一呼吸おいて読み直す」を忘れずに。</div>`;
+  } else {
+    for (const [t] of missedTypes.slice(0, 2)) {
+      advice += `<div class="tip"><b>${TYPE_LABEL[t]}</b>${TIPS[t]}</div>`;
+    }
+  }
+  $("res-advice").innerHTML = advice;
+  show("result");
+}
+
+function goHome() { renderHome(); show("home"); }
+
+/* ---------- カレンダー ---------- */
+function calMonthHTML(year, month) {
+  const today = new Date();
+  const first = new Date(year, month, 1).getDay();
+  const days = new Date(year, month + 1, 0).getDate();
+  let cells = "<tr>" + WDAYS.map((w, i) => `<th class="${i === 0 ? "sun" : i === 6 ? "sat" : ""}">${w}</th>`).join("") + "</tr><tr>";
+  for (let i = 0; i < first; i++) cells += "<td></td>";
+  let col = first;
+  for (let d = 1; d <= days; d++) {
+    const isToday = year === today.getFullYear() && month === today.getMonth() && d === today.getDate();
+    cells += `<td class="${col === 0 ? "sun" : col === 6 ? "sat" : ""}${isToday ? " today" : ""}">${d}</td>`;
+    col++;
+    if (col === 7 && d < days) { cells += "</tr><tr>"; col = 0; }
+  }
+  cells += "</tr>";
+  return `<div class="cal"><h3>${year}年${month + 1}月</h3><table>${cells}</table></div>`;
+}
+function toggleCal() {
+  const wrap = $("cal-wrap");
+  const open = wrap.classList.toggle("hidden");
+  $("cal-toggle").textContent = open ? "📅 カレンダーを開く(曜日の確認に)" : "📅 カレンダーを閉じる";
+  if (!open && !wrap.dataset.built) {
+    const t = new Date();
+    let html = "";
+    for (let k = 0; k < 3; k++) {
+      const m = new Date(t.getFullYear(), t.getMonth() + k, 1);
+      html += calMonthHTML(m.getFullYear(), m.getMonth());
+    }
+    wrap.innerHTML = html;
+    wrap.dataset.built = "1";
+  }
+}
+
+renderHome();
+</script>
+</body>
+</html>
