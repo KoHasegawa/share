@@ -37,6 +37,7 @@ jobs:
           cp -r game-v4 _deploy/game-v4
           cp -r game-v5 _deploy/game-v5
           cp -r game-v6 _deploy/game-v6
+          cp -r attention-trainer _deploy/attention-trainer
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
