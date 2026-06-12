@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#070b14">
 <title>パラレル・ラボ — 並行処理トレーニング</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
   html, body { height: 100%; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", sans-serif;
@@ -268,6 +268,53 @@
   }
   @keyframes orbIn { from { transform: scale(0.3); } to { transform: scale(1); } }
 
+  /* ---------- MODE 4: WORKING MEMORY ---------- */
+  .wm-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  .wm-top { flex: 1; overflow-y: auto; padding: 16px 14px; display: flex; flex-direction: column; align-items: center; }
+  .wm-label { font-size: 13px; font-weight: 700; color: #6ee7f7; letter-spacing: 0.08em; margin-bottom: 14px; text-align: center; }
+  .wm-label.warn { color: #ffb86b; }
+  .wm-chips { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: 360px; }
+  .wm-chip {
+    background: rgba(110,231,247,0.1);
+    border: 1px solid rgba(110,231,247,0.4);
+    color: #e8f1ff;
+    font-size: 1.25rem; font-weight: 700;
+    border-radius: 14px; padding: 10px 18px;
+    animation: orbIn 0.2s ease;
+  }
+  .wm-chip.small { font-size: 1rem; padding: 7px 14px; }
+  .wm-chip.ok { background: rgba(86,211,100,0.15); border-color: #2ea043; color: #7ee787; }
+  .wm-chip.ng { background: rgba(255,123,114,0.15); border-color: #da3633; color: #ffa198; animation: shake 0.35s; }
+  .wm-chip.miss { background: rgba(255,184,107,0.12); border-color: #d29922; color: #ffd479; }
+  .wm-eq {
+    font-size: clamp(1.8rem, 9vw, 2.6rem); font-weight: 800; color: #ffd479;
+    margin: 10px 0 6px; font-variant-numeric: tabular-nums;
+  }
+  .wm-sub { font-size: 12px; color: #8fa6c4; margin-top: 10px; line-height: 1.7; text-align: center; }
+  .wm-count { font-size: 13px; color: #b388ff; font-weight: 700; margin: 10px 0 4px; }
+  .wm-inputrow {
+    flex: none; display: flex; gap: 10px;
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+    background: rgba(10,16,28,0.95);
+    border-top: 1px solid #1f2c45;
+  }
+  .wm-inputrow input {
+    flex: 1; min-width: 0;
+    background: #0c1322; border: 1px solid #33415e; border-radius: 12px;
+    color: #e8f1ff; font-size: 18px; padding: 12px 14px;
+    outline: none;
+  }
+  .wm-inputrow input:focus { border-color: #6ee7f7; }
+  .wm-inputrow input:disabled { opacity: 0.4; }
+  .wm-inputrow button {
+    flex: none;
+    background: linear-gradient(135deg, #1f6feb, #8957e5);
+    border: none; color: #fff; font-size: 15px; font-weight: 700;
+    border-radius: 12px; padding: 0 22px; cursor: pointer;
+  }
+  .wm-inputrow button:disabled { opacity: 0.4; }
+  .wm-inputrow button:active { transform: scale(0.95); }
+
   /* ---------- RESULT ---------- */
   #result { align-items: center; justify-content: center; padding: 28px 20px; text-align: center; }
   #result .res-mode { color: #8fa6c4; font-size: 13px; letter-spacing: 0.1em; }
@@ -319,7 +366,7 @@
     </div>
     <div class="lvl">
       <div class="label">総合Lv</div>
-      <b id="rank-lv">3</b><span style="color:#5b6c87;font-size:12px;"> / 30</span>
+      <b id="rank-lv">4</b><span style="color:#5b6c87;font-size:12px;"> / 40</span>
     </div>
   </div>
   <div class="rank-bar"><i id="rank-bar" style="width:0%"></i></div>
@@ -347,6 +394,14 @@
         <h2>🧠 デュアルタスク</h2>
         <div class="desc">上で計算の正誤判定、下でターゲット捕獲を同時進行。2つの課題を並行してさばく力を鍛える。</div>
         <div class="stats"><span id="lv-dual">Lv 1</span><span class="best" id="best-dual">ベスト —</span></div>
+      </div>
+    </div>
+    <div class="mode-card" data-mode="wm">
+      <img src="assets/mode-memory.webp" alt="">
+      <div class="info">
+        <h2>🎒 おつかいメモ</h2>
+        <div class="desc">持ち物リストを覚え、計算の「作業」をはさんでから文字入力で思い出す。「何を持ってきたんだっけ?」をなくすワーキングメモリ訓練。</div>
+        <div class="stats"><span id="lv-wm">Lv 1</span><span class="best" id="best-wm">ベスト —</span></div>
       </div>
     </div>
   </div>
@@ -393,23 +448,26 @@ const MODE_META = {
   reactors: { name: "⚡ 同時メンテ", goal: lv => 350 + lv * 130 },
   mot:      { name: "👁 マルチトラッキング", goal: lv => 800 + lv * 280 },
   dual:     { name: "🧠 デュアルタスク", goal: lv => 600 + lv * 220 },
+  wm:       { name: "🎒 おつかいメモ", goal: lv => 700 + lv * 250 },
 };
 const MAX_LV = 10;
 const RANKS = [
-  [27, "ニューラルコア"], [22, "オクタコア"], [16, "ヘキサコア"],
-  [11, "クアッドコア"], [6, "デュアルコア"], [0, "シングルコア"],
+  [36, "ニューラルコア"], [29, "オクタコア"], [21, "ヘキサコア"],
+  [13, "クアッドコア"], [7, "デュアルコア"], [0, "シングルコア"],
 ];
 
 function loadSave() {
+  let s = null;
   try {
-    const s = JSON.parse(localStorage.getItem(STORE_KEY));
-    if (s && s.modes) return s;
+    const j = JSON.parse(localStorage.getItem(STORE_KEY));
+    if (j && j.modes) s = j;
   } catch (e) {}
-  return { modes: {
-    reactors: { level: 1, best: 0, plays: 0 },
-    mot:      { level: 1, best: 0, plays: 0 },
-    dual:     { level: 1, best: 0, plays: 0 },
-  }};
+  if (!s) s = { modes: {} };
+  for (const m of Object.keys(MODE_META)) {
+    if (!s.modes[m]) s.modes[m] = { level: 1, best: 0, plays: 0 };
+    s.modes[m].best = Math.round(s.modes[m].best || 0); // 旧データの小数を丸める
+  }
+  return s;
 }
 let SAVE = loadSave();
 function persist() { try { localStorage.setItem(STORE_KEY, JSON.stringify(SAVE)); } catch (e) {} }
@@ -423,7 +481,7 @@ function renderHome() {
     document.getElementById("best-" + m).textContent = d.best > 0 ? "ベスト " + d.best : "ベスト —";
   }
   document.getElementById("rank-lv").textContent = total;
-  document.getElementById("rank-bar").style.width = (total / (MAX_LV * 3) * 100) + "%";
+  document.getElementById("rank-bar").style.width = (total / (MAX_LV * Object.keys(MODE_META).length) * 100) + "%";
   document.getElementById("rank-name").textContent = RANKS.find(r => total >= r[0])[1];
 }
 
@@ -519,6 +577,7 @@ function runIntro(title, lv, ruleHTML, onStart) {
 
 /* ================= 結果 ================= */
 function finishGame(mode, score, detailRows) {
+  score = Math.round(score);
   current = null;
   SFX.finish();
   const meta = MODE_META[mode];
@@ -1013,13 +1072,210 @@ function startDual(lv) {
   game.raf = requestAnimationFrame(frame);
 }
 
+/* =========================================================
+   MODE 4: おつかいメモ(ワーキングメモリ × 並行処理)
+   ========================================================= */
+const WM_ITEMS = [
+  "はさみ", "のり", "ペン", "けしごむ", "ふせん", "でんち", "テープ", "クリップ",
+  "ふくろ", "コップ", "タオル", "かぎ", "めがね", "マスク", "ライト", "ねじ",
+  "ひも", "きって", "ノート", "カード", "はがき", "えんぴつ", "じょうぎ", "かさ",
+  "てぶくろ", "ハンガー", "スポンジ", "ろうそく", "くぎ", "ボタン", "リボン",
+  "わごむ", "しおり", "コイン", "レシート", "せっけん", "フック", "ねんど",
+];
+// カタカナ→ひらがな・全角→半角などを吸収して比較する
+const wmNorm = s => s.normalize("NFKC").replace(/\s+/g, "")
+  .replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
+
+function startWM(lv) {
+  const ROUNDS = 4;
+  const nItems = lv < 3 ? 3 : (lv < 5 ? 4 : (lv < 8 ? 5 : 6));
+  const N_PROBS = 3;
+  const probTime = Math.max(3.5, 6 - lv * 0.25);
+  const memoTime = 1.0 + nItems * 1.4;
+  const recallTime = 8 + nItems * 4;
+
+  stage.innerHTML = `
+    <div class="wm-wrap">
+      <div class="wm-top" id="wm-top"></div>
+      <form class="wm-inputrow" id="wm-form" autocomplete="off">
+        <input id="wm-in" type="text" autocomplete="off" autocapitalize="off" enterkeyhint="send" placeholder="">
+        <button type="submit" id="wm-btn">OK</button>
+      </form>
+    </div>`;
+  const top = $("wm-top"), input = $("wm-in"), btn = $("wm-btn");
+
+  const game = {
+    mode: "wm", score: 0, raf: 0, round: 0, last: performance.now(),
+    phase: "idle", phaseT: 0, phaseDur: 1,
+    items: [], itemsN: [], found: [], wrongs: 0,
+    prob: null, probIdx: 0,
+    mathOK: 0, recallOK: 0, perfects: 0,
+    stop() { cancelAnimationFrame(this.raf); },
+  };
+  current = game;
+
+  function setPhase(p, dur) { game.phase = p; game.phaseT = 0; game.phaseDur = dur; }
+  function setInput(enabled, mode, placeholder) {
+    input.disabled = !enabled; btn.disabled = !enabled;
+    input.value = "";
+    input.placeholder = placeholder || "";
+    input.setAttribute("inputmode", mode || "text");
+    if (enabled) setTimeout(() => input.focus(), 50);
+  }
+  function chips(arr, cls) {
+    return `<div class="wm-chips">` +
+      arr.map(([t, c]) => `<span class="wm-chip ${cls || ""} ${c || ""}">${t}</span>`).join("") + `</div>`;
+  }
+
+  function startMemo() {
+    game.round++;
+    const pool = [...WM_ITEMS];
+    game.items = [];
+    for (let i = 0; i < nItems; i++)
+      game.items.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    game.itemsN = game.items.map(wmNorm);
+    game.found = []; game.wrongs = 0;
+    setCombo(`R ${game.round}/${ROUNDS}`);
+    top.innerHTML = `<div class="wm-label">📦 持ち物を覚えて!(${nItems} 個)</div>` +
+      chips(game.items.map(t => [t])) +
+      `<div class="wm-sub">このあと計算の「作業」をはさんでから<br>何を持ってきたか入力してもらうよ</div>`;
+    setInput(false);
+    setPhase("memo", memoTime);
+    SFX.tick();
+  }
+
+  function newProb() {
+    game.probIdx++;
+    const a = 4 + Math.floor(Math.random() * (6 + lv)),
+          b = 3 + Math.floor(Math.random() * (6 + lv));
+    const isAdd = Math.random() < 0.5;
+    const [x, y] = !isAdd && a < b ? [b, a] : [a, b];
+    game.prob = { ans: isAdd ? x + y : x - y, text: `${x} ${isAdd ? "+" : "−"} ${y} = ?` };
+    top.innerHTML = `<div class="wm-label warn">🔧 作業中…(持ち物は覚えたまま!)</div>
+      <div class="wm-eq">${game.prob.text}</div>
+      <div class="wm-sub">答えを入力して OK(${game.probIdx} / ${N_PROBS})</div>`;
+    setPhase("work", probTime);
+  }
+  function startWork() {
+    game.probIdx = 0;
+    setInput(true, "numeric", "こたえ");
+    newProb();
+  }
+  function endProb(good, timeout) {
+    if (good) { game.mathOK++; game.score += 20; SFX.good(); }
+    else SFX.bad();
+    setScore(game.score);
+    if (game.probIdx >= N_PROBS) startRecall();
+    else { newProb(); input.value = ""; }
+  }
+
+  function renderRecall() {
+    top.innerHTML = `<div class="wm-label">🎒 何を持ってきた? ひらがなで入力!</div>
+      <div class="wm-count">のこり ${nItems - game.found.length} 個</div>` +
+      chips(game.found.map(t => [t, "ok"]), "small") +
+      `<div class="wm-sub">カタカナの物もひらがなでOK / 順不同</div>`;
+  }
+  function startRecall() {
+    setInput(true, "text", "もちもの");
+    renderRecall();
+    setPhase("recall", recallTime);
+  }
+  function submitRecall() {
+    const raw = input.value;
+    const v = wmNorm(raw);
+    input.value = "";
+    if (!v) return;
+    if (game.found.some(f => wmNorm(f) === v)) return; // 入力済み
+    const idx = game.itemsN.indexOf(v);
+    const r = stage.getBoundingClientRect();
+    if (idx >= 0) {
+      game.found.push(game.items[idx]);
+      game.recallOK++;
+      let pts = 100;
+      // 提示順どおりに思い出せたらボーナス
+      if (idx === game.found.length - 1) pts += 30;
+      game.score += pts;
+      SFX.good();
+      floatPt(r.width / 2, r.height * 0.35, "+" + pts, "#56d364");
+      renderRecall();
+      if (game.found.length >= nItems) {
+        game.perfects++;
+        game.score += 80;
+        floatPt(r.width / 2, r.height * 0.45, "+80 コンプリート!", "#ffd479");
+        endRound();
+      }
+    } else {
+      game.wrongs++;
+      game.score = Math.max(0, game.score - 20);
+      SFX.bad();
+      floatPt(r.width / 2, r.height * 0.35, "-20", "#ff7b72");
+      const c = document.createElement("span");
+      c.className = "wm-chip small ng"; c.textContent = raw.trim();
+      top.querySelector(".wm-chips")?.appendChild(c) || top.insertAdjacentHTML("beforeend", `<div class="wm-chips"><span class="wm-chip small ng">${raw.trim()}</span></div>`);
+    }
+    setScore(game.score);
+  }
+  function endRound() {
+    setInput(false);
+    const foundN = game.found.map(wmNorm);
+    top.innerHTML = `<div class="wm-label">${game.found.length === nItems ? "✨ 全部持ってきた!" : "答え合わせ"}</div>` +
+      chips(game.items.map(t => [t, foundN.includes(wmNorm(t)) ? "ok" : "miss"])) +
+      `<div class="wm-sub">${game.found.length} / ${nItems} 個 思い出せた</div>`;
+    setPhase("feedback", 2.4);
+  }
+
+  $("wm-form").addEventListener("submit", e => {
+    e.preventDefault();
+    if (current !== game) return;
+    ac();
+    if (game.phase === "work") {
+      const v = parseInt(input.value.normalize("NFKC").trim(), 10);
+      if (isNaN(v)) return;
+      endProb(v === game.prob.ans, false);
+    } else if (game.phase === "recall") {
+      submitRecall();
+    }
+  });
+
+  function frame(now) {
+    if (current !== game) return;
+    const dt = Math.min(0.1, (now - game.last) / 1000);
+    game.last = now;
+    game.phaseT += dt;
+    setTime(1 - game.phaseT / game.phaseDur);
+
+    if (game.phaseT >= game.phaseDur) {
+      if (game.phase === "memo") startWork();
+      else if (game.phase === "work") endProb(false, true);
+      else if (game.phase === "recall") endRound();
+      else if (game.phase === "feedback") {
+        if (game.round >= ROUNDS) {
+          game.stop();
+          finishGame("wm", game.score, [
+            ["思い出せた持ち物", game.recallOK + " / " + ROUNDS * nItems + " 個"],
+            ["コンプリート", game.perfects + " / " + ROUNDS + " ラウンド"],
+            ["作業計算の正解", game.mathOK + " / " + ROUNDS * N_PROBS + " 問"],
+          ]);
+          return;
+        }
+        startMemo();
+      }
+    }
+    game.raf = requestAnimationFrame(frame);
+  }
+  startMemo();
+  game.last = performance.now();
+  game.raf = requestAnimationFrame(frame);
+}
+
 /* ================= モード起動 ================= */
 const INTROS = {
   reactors: lv => `減っていく <b>${lv < 3 ? 2 : lv < 6 ? 3 : 4} 基の炉</b>をタップで充填し、<br>すべて緑のゾーンに保とう。<br>0% になると停止して大減点。<br>⚠ 警報が出たら素早く 2 回タップ!<br><br>制限時間 60 秒`,
   mot: lv => `最初に光る <b>${lv < 3 ? 2 : lv < 6 ? 3 : 4} 個のターゲット</b>を覚えて、<br>動き回っても目で追い続けよう。<br>停止したらターゲットだった球をタップ。<br>全 5 ラウンド。`,
   dual: lv => `<b>上</b>:計算式が正しければ ◯、違えば ✕。<br><b>下</b>:光る球をどんどんタップ。<br>${lv >= 4 ? "赤い球は罠 — 触らないこと。<br>" : ""}両方を同時にさばいてコンボを稼ごう!<br><br>制限時間 60 秒`,
+  wm: lv => `<b>持ち物 ${lv < 3 ? 3 : lv < 5 ? 4 : lv < 8 ? 5 : 6} 個</b>を覚える<br>↓<br>計算の「作業」を 3 問こなす<br>↓<br>何を持ってきたか<b>ひらがなで入力</b>!<br>作業中も持ち物を忘れないで。<br>提示された順に思い出すとボーナス。<br><br>全 4 ラウンド`,
 };
-const STARTERS = { reactors: startReactors, mot: startMOT, dual: startDual };
+const STARTERS = { reactors: startReactors, mot: startMOT, dual: startDual, wm: startWM };
 
 function launchMode(mode) {
   currentMode = mode;
@@ -1039,6 +1295,16 @@ $("btn-quit").addEventListener("click", () => {
 });
 $("btn-home").addEventListener("click", () => show("home"));
 $("btn-retry").addEventListener("click", () => launchMode(currentMode));
+
+/* iOS Safari のダブルタップズーム/ピンチズーム抑止 */
+document.addEventListener("dblclick", e => e.preventDefault(), { passive: false });
+document.addEventListener("gesturestart", e => e.preventDefault(), { passive: false });
+let lastTouchEnd = 0;
+document.addEventListener("touchend", e => {
+  const now = Date.now();
+  if (now - lastTouchEnd < 320 && e.target.tagName !== "INPUT") e.preventDefault();
+  lastTouchEnd = now;
+}, { passive: false });
 
 renderHome();
 </script>
