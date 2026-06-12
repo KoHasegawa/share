@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
 <meta name="theme-color" content="#070b14">
 <title>パラレル・ラボ — 並行処理トレーニング</title>
 <style>
@@ -518,6 +518,8 @@ const $ = id => document.getElementById(id);
 const screens = { home: $("home"), game: $("game"), result: $("result") };
 function show(name) {
   for (const k of Object.keys(screens)) screens[k].classList.toggle("active", k === name);
+  if (name !== "game") { screens.game.style.height = ""; screens.game.style.transform = ""; }
+  window.scrollTo(0, 0);
 }
 
 const stage = $("stage");
@@ -1114,13 +1116,13 @@ function startWM(lv) {
   };
   current = game;
 
-  function setPhase(p, dur) { game.phase = p; game.phaseT = 0; game.phaseDur = dur; }
+  function setPhase(p, dur) { game.phase = p; game.phaseT = 0; game.phaseDur = dur; top.scrollTop = 0; }
   function setInput(enabled, mode, placeholder) {
     input.disabled = !enabled; btn.disabled = !enabled;
     input.value = "";
     input.placeholder = placeholder || "";
     input.setAttribute("inputmode", mode || "text");
-    if (enabled) setTimeout(() => input.focus(), 50);
+    if (enabled) setTimeout(() => { input.focus({ preventScroll: true }); window.scrollTo(0, 0); }, 50);
   }
   function chips(arr, cls) {
     return `<div class="wm-chips">` +
@@ -1305,6 +1307,21 @@ document.addEventListener("touchend", e => {
   if (now - lastTouchEnd < 320 && e.target.tagName !== "INPUT") e.preventDefault();
   lastTouchEnd = now;
 }, { passive: false });
+
+/* キーボード表示時にページごとスクロールして問題文が隠れるのを防ぐ:
+   ゲーム画面の高さを可視領域(visualViewport)に合わせて縮め、位置も追従させる */
+const vv = window.visualViewport;
+if (vv) {
+  const syncViewport = () => {
+    const g = screens.game;
+    if (!g.classList.contains("active")) { g.style.height = ""; g.style.transform = ""; return; }
+    g.style.height = vv.height + "px";
+    g.style.transform = `translateY(${vv.offsetTop}px)`;
+    window.scrollTo(0, 0);
+  };
+  vv.addEventListener("resize", syncViewport);
+  vv.addEventListener("scroll", syncViewport);
+}
 
 renderHome();
 </script>
