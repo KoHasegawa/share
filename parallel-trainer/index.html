@@ -465,6 +465,7 @@ function loadSave() {
   if (!s) s = { modes: {} };
   for (const m of Object.keys(MODE_META)) {
     if (!s.modes[m]) s.modes[m] = { level: 1, best: 0, plays: 0 };
+    s.modes[m].best = Math.round(s.modes[m].best || 0); // 旧データの小数を丸める
   }
   return s;
 }
@@ -576,6 +577,7 @@ function runIntro(title, lv, ruleHTML, onStart) {
 
 /* ================= 結果 ================= */
 function finishGame(mode, score, detailRows) {
+  score = Math.round(score);
   current = null;
   SFX.finish();
   const meta = MODE_META[mode];
