@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#070b14">
+<title>パラレル・ラボ — 並行処理トレーニング</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", sans-serif;
+    background: #070b14;
+    color: #dce6f5;
+    overflow: hidden;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  button { font-family: inherit; touch-action: manipulation; }
+
+  .screen {
+    position: absolute; inset: 0;
+    display: none;
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .screen.active { display: flex; }
+
+  /* ---------- HOME ---------- */
+  #home { padding-bottom: 32px; }
+  .hero {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1536 / 1024;
+    max-height: 44vh;
+    overflow: hidden;
+  }
+  .hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .hero::after {
+    content: "";
+    position: absolute; inset: 0;
+    background: linear-gradient(to bottom, rgba(7,11,20,0.1) 40%, rgba(7,11,20,0.85) 85%, #070b14 100%);
+  }
+  .hero-title {
+    position: absolute; left: 0; right: 0; bottom: 10px;
+    text-align: center; z-index: 2;
+  }
+  .hero-title h1 {
+    font-size: clamp(1.6rem, 7vw, 2.4rem);
+    letter-spacing: 0.06em;
+    background: linear-gradient(90deg, #6ee7f7, #b388ff, #ffb86b);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 2px 8px rgba(0,0,0,0.8));
+  }
+  .hero-title p { color: #9fb3cc; font-size: 13px; margin-top: 4px; text-shadow: 0 1px 4px #000; }
+
+  .rank-card {
+    margin: 14px 16px 6px;
+    padding: 14px 18px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, rgba(110,231,247,0.08), rgba(179,136,255,0.08));
+    border: 1px solid rgba(110,231,247,0.25);
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .rank-card .label { font-size: 11px; color: #8fa6c4; letter-spacing: 0.1em; }
+  .rank-card .rank-name { font-size: 1.25rem; font-weight: 700; color: #6ee7f7; margin-top: 2px; }
+  .rank-card .lvl { text-align: right; }
+  .rank-card .lvl b { font-size: 1.5rem; color: #ffd479; }
+  .rank-bar { margin: 8px 16px 14px; height: 6px; border-radius: 3px; background: #141c2e; overflow: hidden; }
+  .rank-bar i { display: block; height: 100%; border-radius: 3px;
+    background: linear-gradient(90deg, #6ee7f7, #b388ff, #ffb86b); transition: width 0.6s ease; }
+
+  .modes { display: flex; flex-direction: column; gap: 14px; padding: 4px 16px; }
+  .mode-card {
+    display: flex; gap: 14px; align-items: center;
+    background: #0e1524;
+    border: 1px solid #1f2c45;
+    border-radius: 16px;
+    padding: 12px;
+    cursor: pointer;
+    transition: transform 0.12s, border-color 0.12s;
+  }
+  .mode-card:active { transform: scale(0.97); border-color: #6ee7f7; }
+  .mode-card img {
+    width: 76px; height: 76px; border-radius: 12px; object-fit: cover; flex: none;
+    border: 1px solid #25334f;
+  }
+  .mode-card .info { flex: 1; min-width: 0; }
+  .mode-card h2 { font-size: 1.05rem; color: #e8f1ff; margin-bottom: 3px; }
+  .mode-card .desc { font-size: 12px; color: #8fa6c4; line-height: 1.5; }
+  .mode-card .stats { display: flex; gap: 10px; margin-top: 6px; font-size: 11px; }
+  .mode-card .stats span { color: #6ee7f7; background: rgba(110,231,247,0.1); padding: 2px 8px; border-radius: 10px; }
+  .mode-card .stats span.best { color: #ffd479; background: rgba(255,212,121,0.1); }
+
+  .home-foot { text-align: center; margin-top: 18px; font-size: 11px; color: #5b6c87; padding: 0 24px; line-height: 1.7; }
+  .home-foot a { color: #6ee7f7; text-decoration: none; }
+
+  /* ---------- GAME CHROME ---------- */
+  #game { background: #070b14; }
+  .hud {
+    flex: none;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px;
+    background: rgba(10,16,28,0.9);
+    border-bottom: 1px solid #1f2c45;
+    z-index: 5;
+  }
+  .hud .quit {
+    background: none; border: 1px solid #33415e; color: #8fa6c4;
+    border-radius: 8px; padding: 5px 10px; font-size: 12px; cursor: pointer;
+  }
+  .hud .hud-score { font-size: 1.15rem; font-weight: 700; color: #ffd479; min-width: 70px; text-align: center; }
+  .hud .hud-right { display: flex; align-items: center; gap: 10px; }
+  .hud .hud-combo { font-size: 12px; color: #b388ff; font-weight: 700; min-width: 44px; text-align: right; }
+  .timebar { flex: none; height: 5px; background: #141c2e; }
+  .timebar i { display: block; height: 100%; background: linear-gradient(90deg, #6ee7f7, #b388ff); transition: width 0.2s linear; }
+  .timebar i.warn { background: linear-gradient(90deg, #ff7b72, #ffb86b); }
+  #stage { flex: 1; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+
+  /* overlay (intro / countdown) */
+  .overlay {
+    position: absolute; inset: 0; z-index: 20;
+    background: rgba(7,11,20,0.93);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 28px;
+  }
+  .overlay h2 { color: #6ee7f7; font-size: 1.5rem; margin-bottom: 12px; }
+  .overlay .rule { color: #b9c9e0; font-size: 14px; line-height: 1.9; max-width: 340px; margin-bottom: 8px; }
+  .overlay .lv-chip { display: inline-block; background: rgba(255,212,121,0.12); color: #ffd479;
+    border-radius: 12px; padding: 3px 14px; font-size: 13px; font-weight: 700; margin-bottom: 14px; }
+  .overlay .go {
+    margin-top: 18px;
+    background: linear-gradient(135deg, #1f6feb, #8957e5);
+    border: none; color: #fff; font-size: 1.1rem; font-weight: 700;
+    padding: 14px 52px; border-radius: 14px; cursor: pointer;
+    box-shadow: 0 4px 24px rgba(31,111,235,0.4);
+  }
+  .overlay .go:active { transform: scale(0.96); }
+  .countdown {
+    font-size: 5rem; font-weight: 800; color: #6ee7f7;
+    text-shadow: 0 0 40px rgba(110,231,247,0.6);
+    animation: pop 0.9s ease infinite;
+  }
+  @keyframes pop { 0% { transform: scale(1.4); opacity: 0.2; } 30% { transform: scale(1); opacity: 1; } 100% { opacity: 0.9; } }
+
+  /* floating score text */
+  .float-pt {
+    position: absolute; z-index: 15; pointer-events: none;
+    font-weight: 800; font-size: 1.1rem;
+    animation: floatUp 0.8s ease forwards;
+  }
+  @keyframes floatUp { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-44px); } }
+
+  /* ---------- MODE 1: REACTORS ---------- */
+  .reactor-wrap { flex: 1; display: flex; gap: 10px; padding: 12px; }
+  .reactor {
+    flex: 1; position: relative;
+    background: #0c1322;
+    border: 2px solid #1f2c45;
+    border-radius: 16px;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 12px 6px;
+    cursor: pointer;
+    overflow: hidden;
+    transition: border-color 0.15s;
+  }
+  .reactor.intact:active { border-color: #6ee7f7; }
+  .reactor .r-name { font-size: 11px; color: #8fa6c4; letter-spacing: 0.1em; margin-bottom: 8px; }
+  .reactor .tube {
+    flex: 1; width: min(46px, 60%);
+    background: #101a2e;
+    border: 1px solid #25334f;
+    border-radius: 12px;
+    position: relative; overflow: hidden;
+  }
+  .reactor .zone {
+    position: absolute; left: 0; right: 0;
+    background: rgba(63,185,80,0.13);
+    border-top: 1px dashed rgba(63,185,80,0.5);
+    border-bottom: 1px dashed rgba(63,185,80,0.5);
+  }
+  .reactor .fill {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(to top, #1f6feb, #6ee7f7);
+    border-radius: 0 0 12px 12px;
+  }
+  .reactor .fill.good { background: linear-gradient(to top, #2ea043, #56d364); }
+  .reactor .fill.low { background: linear-gradient(to top, #da3633, #ff7b72); }
+  .reactor .pct { font-size: 13px; font-weight: 700; color: #b9c9e0; margin-top: 8px; }
+  .reactor .tap-hint { font-size: 10px; color: #5b6c87; margin-top: 2px; }
+  .reactor.down { border-color: #da3633; animation: shake 0.4s; }
+  .reactor.down::after {
+    content: "停止中…"; position: absolute; inset: 0; z-index: 3;
+    background: rgba(120,20,20,0.55); color: #ffb3ad;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px;
+  }
+  .reactor .alert-badge {
+    position: absolute; top: 6px; right: 6px; z-index: 4;
+    background: #ffd479; color: #3a2a00;
+    font-size: 11px; font-weight: 800;
+    border-radius: 10px; padding: 3px 8px;
+    animation: blink 0.5s steps(2) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0.25; } }
+  @keyframes shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+
+  /* ---------- MODE 2: MOT ---------- */
+  #mot-canvas { flex: 1; width: 100%; display: block; }
+  .mot-msg {
+    position: absolute; top: 12px; left: 0; right: 0; z-index: 10;
+    text-align: center; font-size: 14px; font-weight: 700; color: #6ee7f7;
+    pointer-events: none; text-shadow: 0 1px 6px #000;
+  }
+
+  /* ---------- MODE 3: DUAL ---------- */
+  .dual-wrap { flex: 1; display: flex; flex-direction: column; }
+  .dual-math {
+    flex: none;
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid #1f2c45;
+    background: rgba(255,184,107,0.04);
+  }
+  .dual-math .eq {
+    text-align: center; font-size: clamp(1.5rem, 8vw, 2.2rem); font-weight: 800;
+    color: #ffd479; letter-spacing: 0.04em; min-height: 1.3em;
+    font-variant-numeric: tabular-nums;
+  }
+  .dual-math .eq.flash-ok { color: #56d364; }
+  .dual-math .eq.flash-ng { color: #ff7b72; }
+  .math-timer { height: 4px; background: #141c2e; border-radius: 2px; margin: 8px 0 10px; overflow: hidden; }
+  .math-timer i { display: block; height: 100%; background: #ffb86b; }
+  .dual-btns { display: flex; gap: 12px; }
+  .dual-btns button {
+    flex: 1; font-size: 1.5rem; font-weight: 800;
+    padding: 12px 0; border-radius: 14px; border: 2px solid;
+    background: transparent; cursor: pointer;
+  }
+  .dual-btns .b-ok { color: #56d364; border-color: #2ea043; }
+  .dual-btns .b-ng { color: #ff7b72; border-color: #da3633; }
+  .dual-btns button:active { transform: scale(0.95); filter: brightness(1.4); }
+  .dual-grid {
+    flex: 1; display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 10px; padding: 14px;
+  }
+  .dcell {
+    background: #0c1322;
+    border: 1px solid #1f2c45;
+    border-radius: 14px;
+    position: relative; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .dcell .orb {
+    width: 64%; aspect-ratio: 1; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #b9f3ff, #6ee7f7 45%, #1f6feb);
+    box-shadow: 0 0 24px rgba(110,231,247,0.7);
+    animation: orbIn 0.18s ease;
+  }
+  .dcell .orb.bomb {
+    background: radial-gradient(circle at 35% 30%, #ffc2bd, #ff7b72 45%, #b62324);
+    box-shadow: 0 0 24px rgba(255,123,114,0.7);
+  }
+  @keyframes orbIn { from { transform: scale(0.3); } to { transform: scale(1); } }
+
+  /* ---------- RESULT ---------- */
+  #result { align-items: center; justify-content: center; padding: 28px 20px; text-align: center; }
+  #result .res-mode { color: #8fa6c4; font-size: 13px; letter-spacing: 0.1em; }
+  #result h2 { font-size: 1.4rem; color: #e8f1ff; margin: 6px 0 18px; }
+  #result .res-score {
+    font-size: 3.2rem; font-weight: 800; color: #ffd479;
+    text-shadow: 0 0 32px rgba(255,212,121,0.35);
+    font-variant-numeric: tabular-nums;
+  }
+  #result .res-score small { font-size: 1rem; color: #8fa6c4; font-weight: 400; }
+  .res-badges { display: flex; gap: 8px; justify-content: center; margin: 14px 0 6px; flex-wrap: wrap; }
+  .res-badges span {
+    font-size: 13px; font-weight: 700; border-radius: 14px; padding: 5px 14px;
+  }
+  .res-badges .b-record { background: rgba(255,212,121,0.15); color: #ffd479; }
+  .res-badges .b-lvup { background: rgba(86,211,100,0.15); color: #56d364; }
+  .res-detail {
+    margin: 14px auto 0; max-width: 320px; width: 100%;
+    background: #0e1524; border: 1px solid #1f2c45; border-radius: 14px;
+    padding: 14px 18px; font-size: 13px;
+  }
+  .res-detail .row { display: flex; justify-content: space-between; padding: 5px 0; color: #b9c9e0; }
+  .res-detail .row b { color: #6ee7f7; font-variant-numeric: tabular-nums; }
+  .res-actions { display: flex; gap: 12px; margin-top: 24px; width: 100%; max-width: 320px; }
+  .res-actions button {
+    flex: 1; padding: 14px 0; border-radius: 14px; font-size: 15px; font-weight: 700; cursor: pointer;
+  }
+  .res-actions .retry { background: linear-gradient(135deg, #1f6feb, #8957e5); border: none; color: #fff; }
+  .res-actions .home-btn { background: transparent; border: 1px solid #33415e; color: #b9c9e0; }
+  .res-actions button:active { transform: scale(0.96); }
+</style>
+</head>
+<body>
+
+<!-- ============ HOME ============ -->
+<div id="home" class="screen active">
+  <div class="hero">
+    <img src="assets/hero.webp" alt="パラレル・ラボ">
+    <div class="hero-title">
+      <h1>パラレル・ラボ</h1>
+      <p>並行処理能力トレーニング</p>
+    </div>
+  </div>
+
+  <div class="rank-card">
+    <div>
+      <div class="label">あなたの並行処理ランク</div>
+      <div class="rank-name" id="rank-name">シングルコア</div>
+    </div>
+    <div class="lvl">
+      <div class="label">総合Lv</div>
+      <b id="rank-lv">3</b><span style="color:#5b6c87;font-size:12px;"> / 30</span>
+    </div>
+  </div>
+  <div class="rank-bar"><i id="rank-bar" style="width:0%"></i></div>
+
+  <div class="modes">
+    <div class="mode-card" data-mode="reactors">
+      <img src="assets/mode-gauges.webp" alt="">
+      <div class="info">
+        <h2>⚡ 同時メンテ</h2>
+        <div class="desc">減り続ける複数の炉を同時に監視してタップで維持。視野を広げる「分割的注意」を鍛える。</div>
+        <div class="stats"><span id="lv-reactors">Lv 1</span><span class="best" id="best-reactors">ベスト —</span></div>
+      </div>
+    </div>
+    <div class="mode-card" data-mode="mot">
+      <img src="assets/mode-tracking.webp" alt="">
+      <div class="info">
+        <h2>👁 マルチトラッキング</h2>
+        <div class="desc">動き回る球の中から光ったターゲットだけを目で追い続ける。複数対象の同時追跡力を鍛える。</div>
+        <div class="stats"><span id="lv-mot">Lv 1</span><span class="best" id="best-mot">ベスト —</span></div>
+      </div>
+    </div>
+    <div class="mode-card" data-mode="dual">
+      <img src="assets/mode-dual.webp" alt="">
+      <div class="info">
+        <h2>🧠 デュアルタスク</h2>
+        <div class="desc">上で計算の正誤判定、下でターゲット捕獲を同時進行。2つの課題を並行してさばく力を鍛える。</div>
+        <div class="stats"><span id="lv-dual">Lv 1</span><span class="best" id="best-dual">ベスト —</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="home-foot">
+    各モードで目標スコアを超えるとレベルが上がり、課題の数・速度が増えていきます。<br>
+    毎日少しずつ、脳の「同時にさばく力」を広げよう。<br><br>
+    <a href="../index.html">← 学習ゲーム集へ戻る</a>
+  </div>
+</div>
+
+<!-- ============ GAME ============ -->
+<div id="game" class="screen">
+  <div class="hud">
+    <button class="quit" id="btn-quit">← やめる</button>
+    <div class="hud-score" id="hud-score">0</div>
+    <div class="hud-right">
+      <div class="hud-combo" id="hud-combo"></div>
+    </div>
+  </div>
+  <div class="timebar"><i id="timebar" style="width:100%"></i></div>
+  <div id="stage"></div>
+</div>
+
+<!-- ============ RESULT ============ -->
+<div id="result" class="screen">
+  <div class="res-mode" id="res-mode">同時メンテ</div>
+  <h2 id="res-title">トレーニング完了!</h2>
+  <div class="res-score"><span id="res-score">0</span><small> pt</small></div>
+  <div class="res-badges" id="res-badges"></div>
+  <div class="res-detail" id="res-detail"></div>
+  <div class="res-actions">
+    <button class="home-btn" id="btn-home">ホームへ</button>
+    <button class="retry" id="btn-retry">もう一度</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ================= 保存データ ================= */
+const STORE_KEY = "parallelLab.v1";
+const MODE_META = {
+  reactors: { name: "⚡ 同時メンテ", goal: lv => 350 + lv * 130 },
+  mot:      { name: "👁 マルチトラッキング", goal: lv => 800 + lv * 280 },
+  dual:     { name: "🧠 デュアルタスク", goal: lv => 600 + lv * 220 },
+};
+const MAX_LV = 10;
+const RANKS = [
+  [27, "ニューラルコア"], [22, "オクタコア"], [16, "ヘキサコア"],
+  [11, "クアッドコア"], [6, "デュアルコア"], [0, "シングルコア"],
+];
+
+function loadSave() {
+  try {
+    const s = JSON.parse(localStorage.getItem(STORE_KEY));
+    if (s && s.modes) return s;
+  } catch (e) {}
+  return { modes: {
+    reactors: { level: 1, best: 0, plays: 0 },
+    mot:      { level: 1, best: 0, plays: 0 },
+    dual:     { level: 1, best: 0, plays: 0 },
+  }};
+}
+let SAVE = loadSave();
+function persist() { try { localStorage.setItem(STORE_KEY, JSON.stringify(SAVE)); } catch (e) {} }
+
+function renderHome() {
+  let total = 0;
+  for (const m of Object.keys(MODE_META)) {
+    const d = SAVE.modes[m];
+    total += d.level;
+    document.getElementById("lv-" + m).textContent = "Lv " + d.level;
+    document.getElementById("best-" + m).textContent = d.best > 0 ? "ベスト " + d.best : "ベスト —";
+  }
+  document.getElementById("rank-lv").textContent = total;
+  document.getElementById("rank-bar").style.width = (total / (MAX_LV * 3) * 100) + "%";
+  document.getElementById("rank-name").textContent = RANKS.find(r => total >= r[0])[1];
+}
+
+/* ================= サウンド ================= */
+let AC = null;
+function ac() {
+  if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  if (AC && AC.state === "suspended") AC.resume();
+  return AC;
+}
+function beep(freq, dur, type, vol, when) {
+  const ctx = ac(); if (!ctx) return;
+  const t = ctx.currentTime + (when || 0);
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = type || "sine"; o.frequency.value = freq;
+  g.gain.setValueAtTime(vol || 0.12, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(ctx.destination);
+  o.start(t); o.stop(t + dur + 0.05);
+}
+const SFX = {
+  tap:    () => beep(660, 0.08, "triangle", 0.1),
+  good:   () => { beep(880, 0.1, "sine", 0.12); beep(1320, 0.12, "sine", 0.08, 0.06); },
+  bad:    () => beep(160, 0.25, "sawtooth", 0.12),
+  tick:   () => beep(990, 0.05, "square", 0.05),
+  count:  () => beep(440, 0.12, "sine", 0.15),
+  go:     () => beep(880, 0.25, "sine", 0.16),
+  finish: () => { [660, 880, 1100, 1320].forEach((f, i) => beep(f, 0.18, "sine", 0.12, i * 0.12)); },
+  alarm:  () => { beep(700, 0.1, "square", 0.08); beep(700, 0.1, "square", 0.08, 0.16); },
+};
+
+/* ================= 画面管理 ================= */
+const $ = id => document.getElementById(id);
+const screens = { home: $("home"), game: $("game"), result: $("result") };
+function show(name) {
+  for (const k of Object.keys(screens)) screens[k].classList.toggle("active", k === name);
+}
+
+const stage = $("stage");
+const hudScore = $("hud-score");
+const hudCombo = $("hud-combo");
+const timebar = $("timebar");
+
+let current = null;   // 実行中ゲーム
+let currentMode = null;
+
+function setScore(v) { hudScore.textContent = Math.round(v); }
+function setCombo(text) { hudCombo.textContent = text || ""; }
+function setTime(ratio) {
+  timebar.style.width = Math.max(0, ratio * 100) + "%";
+  timebar.classList.toggle("warn", ratio < 0.25);
+}
+function floatPt(x, y, text, color) {
+  const el = document.createElement("div");
+  el.className = "float-pt";
+  el.textContent = text;
+  el.style.left = x + "px"; el.style.top = y + "px";
+  el.style.color = color || "#ffd479";
+  el.style.transform = "translateX(-50%)";
+  stage.appendChild(el);
+  setTimeout(() => el.remove(), 850);
+}
+
+/* イントロ → カウントダウン → start() */
+function runIntro(title, lv, ruleHTML, onStart) {
+  const ov = document.createElement("div");
+  ov.className = "overlay";
+  ov.innerHTML = `<h2>${title}</h2>
+    <div class="lv-chip">Lv ${lv}</div>
+    <div class="rule">${ruleHTML}</div>
+    <button class="go">スタート</button>`;
+  stage.appendChild(ov);
+  const aborted = () => !screens.game.classList.contains("active");
+  ov.querySelector(".go").addEventListener("click", () => {
+    ac();
+    ov.innerHTML = `<div class="countdown">3</div>`;
+    const cd = ov.querySelector(".countdown");
+    let n = 3;
+    SFX.count();
+    const iv = setInterval(() => {
+      if (aborted()) { clearInterval(iv); ov.remove(); return; }
+      n--;
+      if (n > 0) { cd.textContent = n; SFX.count(); }
+      else {
+        clearInterval(iv);
+        cd.textContent = "GO!";
+        SFX.go();
+        setTimeout(() => { ov.remove(); if (!aborted()) onStart(); }, 350);
+      }
+    }, 700);
+  }, { once: true });
+}
+
+/* ================= 結果 ================= */
+function finishGame(mode, score, detailRows) {
+  current = null;
+  SFX.finish();
+  const meta = MODE_META[mode];
+  const data = SAVE.modes[mode];
+  data.plays++;
+  const isRecord = score > data.best;
+  if (isRecord) data.best = score;
+  const goal = meta.goal(data.level);
+  let lvUp = false;
+  if (score >= goal && data.level < MAX_LV) { data.level++; lvUp = true; }
+  persist();
+
+  $("res-mode").textContent = meta.name;
+  $("res-title").textContent = lvUp ? "レベルアップ!" : (isRecord ? "自己ベスト更新!" : "トレーニング完了!");
+  $("res-score").textContent = Math.round(score);
+  const badges = $("res-badges");
+  badges.innerHTML = "";
+  if (isRecord) badges.innerHTML += `<span class="b-record">🏆 自己ベスト</span>`;
+  if (lvUp) badges.innerHTML += `<span class="b-lvup">⬆ Lv ${data.level} に昇格</span>`;
+
+  const rows = [...detailRows];
+  if (!lvUp && data.level < MAX_LV) rows.push(["次のレベルまで", `あと ${Math.max(0, goal - Math.round(score))} pt`]);
+  if (data.level >= MAX_LV) rows.push(["レベル", "MAX 到達!"]);
+  $("res-detail").innerHTML = rows.map(([k, v]) => `<div class="row"><span>${k}</span><b>${v}</b></div>`).join("");
+  show("result");
+  renderHome();
+}
+
+/* =========================================================
+   MODE 1: 同時メンテ(リアクター維持)
+   ========================================================= */
+function startReactors(lv) {
+  const DUR = 60;
+  const nReactors = lv < 3 ? 2 : (lv < 6 ? 3 : 4);
+  const decayBase = 5 + lv * 0.9;       // %/s
+  const tapGain = 16;
+  const names = ["炉A", "炉B", "炉C", "炉D"];
+
+  stage.innerHTML = `<div class="reactor-wrap" id="rwrap"></div>`;
+  const wrap = $("rwrap");
+  const reactors = [];
+  for (let i = 0; i < nReactors; i++) {
+    const el = document.createElement("div");
+    el.className = "reactor intact";
+    el.innerHTML = `<div class="r-name">${names[i]}</div>
+      <div class="tube">
+        <div class="zone" style="bottom:30%;height:55%"></div>
+        <div class="fill" style="height:65%"></div>
+      </div>
+      <div class="pct">65%</div>
+      <div class="tap-hint">タップで充填</div>`;
+    wrap.appendChild(el);
+    const r = {
+      el, fill: el.querySelector(".fill"), pct: el.querySelector(".pct"),
+      value: 55 + Math.random() * 25,
+      decay: decayBase * (0.8 + Math.random() * 0.45),
+      down: 0, alert: 0, alertTaps: 0,
+    };
+    reactors.push(r);
+    el.addEventListener("pointerdown", e => {
+      if (!current || current.mode !== "reactors") return;
+      if (r.down > 0) return;
+      ac(); SFX.tap();
+      if (r.alert > 0) {
+        r.alertTaps++;
+        if (r.alertTaps >= 2) {
+          r.alert = 0;
+          el.querySelector(".alert-badge")?.remove();
+          current.score += 30;
+          SFX.good();
+          floatPt(e.clientX - stage.getBoundingClientRect().left, e.clientY - stage.getBoundingClientRect().top, "+30 警報解除", "#56d364");
+        }
+        return;
+      }
+      r.value = Math.min(100, r.value + tapGain);
+    });
+  }
+
+  const game = {
+    mode: "reactors", score: 0, raf: 0, t: 0, last: performance.now(),
+    allGreenTime: 0, downs: 0, alertsCleared: 0, nextAlert: 7 + Math.random() * 5,
+    stop() { cancelAnimationFrame(this.raf); },
+  };
+  current = game;
+
+  function frame(now) {
+    if (current !== game) return;
+    const dt = Math.min(0.05, (now - game.last) / 1000);
+    game.last = now;
+    game.t += dt;
+
+    let allGreen = true;
+    let greenCount = 0;
+    for (const r of reactors) {
+      if (r.down > 0) {
+        r.down -= dt;
+        allGreen = false;
+        if (r.down <= 0) {
+          r.value = 55; r.el.classList.remove("down"); r.el.classList.add("intact");
+        }
+      } else {
+        r.value = Math.max(0, r.value - r.decay * dt);
+        if (r.value <= 0) {
+          r.down = 1.6;
+          r.el.classList.add("down"); r.el.classList.remove("intact");
+          if (r.alert > 0) { r.alert = 0; r.el.querySelector(".alert-badge")?.remove(); }
+          game.score = Math.max(0, game.score - 50);
+          game.downs++;
+          SFX.bad();
+          allGreen = false;
+          continue;
+        }
+        const inZone = r.value >= 30 && r.value <= 85;
+        if (inZone) { game.score += 2.2 * dt; greenCount++; }
+        else allGreen = false;
+        if (r.alert > 0) {
+          r.alert -= dt;
+          if (r.alert <= 0) {
+            r.el.querySelector(".alert-badge")?.remove();
+            game.score = Math.max(0, game.score - 30);
+            SFX.bad();
+          }
+        }
+      }
+      r.fill.style.height = r.value + "%";
+      r.fill.className = "fill " + (r.value < 30 ? "low" : (r.value <= 85 ? "good" : ""));
+      r.pct.textContent = Math.round(r.value) + "%";
+    }
+
+    if (allGreen) {
+      game.allGreenTime += dt;
+      game.score += 1.5 * dt * nReactors; // 全稼働ボーナス
+      setCombo("全稼働中 ✦");
+    } else setCombo("");
+
+    // 警報イベント
+    game.nextAlert -= dt;
+    if (game.nextAlert <= 0) {
+      const cands = reactors.filter(r => r.down <= 0 && r.alert <= 0);
+      if (cands.length) {
+        const r = cands[Math.floor(Math.random() * cands.length)];
+        r.alert = 3.2; r.alertTaps = 0;
+        const b = document.createElement("div");
+        b.className = "alert-badge"; b.textContent = "⚠ 2回タップ";
+        r.el.appendChild(b);
+        SFX.alarm();
+      }
+      game.nextAlert = Math.max(4, 11 - lv * 0.6) + Math.random() * 4;
+    }
+
+    setScore(game.score);
+    setTime(1 - game.t / DUR);
+    if (game.t >= DUR) {
+      game.stop();
+      finishGame("reactors", game.score, [
+        ["全炉同時稼働", Math.round(game.allGreenTime) + " 秒"],
+        ["炉の停止回数", game.downs + " 回"],
+        ["管理した炉の数", nReactors + " 基"],
+      ]);
+      return;
+    }
+    game.raf = requestAnimationFrame(frame);
+  }
+  game.raf = requestAnimationFrame(frame);
+}
+
+/* =========================================================
+   MODE 2: マルチトラッキング (MOT)
+   ========================================================= */
+function startMOT(lv) {
+  const ROUNDS = 5;
+  const nDots = Math.min(14, 7 + lv);
+  const nTargets = lv < 3 ? 2 : (lv < 6 ? 3 : 4);
+  const speed = 55 + lv * 14;
+  const trackTime = 6;
+
+  stage.innerHTML = `<div class="mot-msg" id="mot-msg"></div><canvas id="mot-canvas"></canvas>`;
+  const cv = $("mot-canvas"), msg = $("mot-msg");
+  const ctx2 = cv.getContext("2d");
+  let W = 0, H = 0, DPR = Math.min(2, window.devicePixelRatio || 1);
+  function resize() {
+    const r = cv.getBoundingClientRect();
+    W = r.width; H = r.height;
+    cv.width = W * DPR; cv.height = H * DPR;
+    ctx2.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+
+  const game = {
+    mode: "mot", score: 0, raf: 0, round: 0,
+    perfects: 0, totalHit: 0,
+    phase: "idle", dots: [], picked: new Set(), phaseT: 0, last: performance.now(),
+    stop() { cancelAnimationFrame(this.raf); cv.removeEventListener("pointerdown", onTap); },
+  };
+  current = game;
+
+  const R = 16;
+  function newRound() {
+    game.round++;
+    game.dots = [];
+    for (let i = 0; i < nDots; i++) {
+      const a = Math.random() * Math.PI * 2;
+      game.dots.push({
+        x: R + Math.random() * (W - 2 * R),
+        y: R + Math.random() * (H - 2 * R),
+        vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+        target: i < nTargets,
+      });
+    }
+    game.picked = new Set();
+    game.phase = "show"; game.phaseT = 0;
+    msg.textContent = `ラウンド ${game.round}/${ROUNDS}: 光っている ${nTargets} 個を覚えて!`;
+  }
+
+  function onTap(e) {
+    if (current !== game || game.phase !== "pick") return;
+    ac();
+    const rect = cv.getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    let bi = -1, bd = 1e9;
+    game.dots.forEach((d, i) => {
+      const dd = (d.x - x) ** 2 + (d.y - y) ** 2;
+      if (dd < bd) { bd = dd; bi = i; }
+    });
+    if (bi < 0 || bd > (R * 2.4) ** 2 || game.picked.has(bi)) return;
+    game.picked.add(bi);
+    SFX.tap();
+    if (game.picked.size >= nTargets) {
+      // 判定
+      let hit = 0;
+      for (const i of game.picked) if (game.dots[i].target) hit++;
+      game.totalHit += hit;
+      let pts = hit * 100;
+      if (hit === nTargets) { pts += 120; game.perfects++; SFX.good(); }
+      else if (hit === 0) SFX.bad();
+      else SFX.tap();
+      game.score += pts;
+      setScore(game.score);
+      floatPt(W / 2, H / 2 - 30, (pts > 0 ? "+" : "") + pts + (hit === nTargets ? " PERFECT!" : ""), hit === nTargets ? "#56d364" : "#ffd479");
+      game.phase = "reveal"; game.phaseT = 0;
+      msg.textContent = `${hit}/${nTargets} 正解` + (hit === nTargets ? " — お見事!" : "");
+    }
+  }
+  cv.addEventListener("pointerdown", onTap);
+
+  function draw() {
+    ctx2.clearRect(0, 0, W, H);
+    // グリッド背景
+    ctx2.strokeStyle = "rgba(110,231,247,0.05)";
+    ctx2.lineWidth = 1;
+    for (let gx = 0; gx < W; gx += 36) { ctx2.beginPath(); ctx2.moveTo(gx, 0); ctx2.lineTo(gx, H); ctx2.stroke(); }
+    for (let gy = 0; gy < H; gy += 36) { ctx2.beginPath(); ctx2.moveTo(0, gy); ctx2.lineTo(W, gy); ctx2.stroke(); }
+
+    game.dots.forEach((d, i) => {
+      let fill = "#3d5278", glow = null;
+      if (game.phase === "show" && d.target) {
+        fill = "#ff5cc8"; glow = "rgba(255,92,200,0.8)";
+      } else if (game.phase === "pick" && game.picked.has(i)) {
+        fill = "#6ee7f7"; glow = "rgba(110,231,247,0.8)";
+      } else if (game.phase === "reveal") {
+        if (d.target && game.picked.has(i)) { fill = "#56d364"; glow = "rgba(86,211,100,0.8)"; }
+        else if (d.target) { fill = "#ff5cc8"; glow = "rgba(255,92,200,0.8)"; }
+        else if (game.picked.has(i)) { fill = "#ff7b72"; glow = "rgba(255,123,114,0.8)"; }
+      }
+      ctx2.shadowBlur = glow ? 18 : 0;
+      ctx2.shadowColor = glow || "transparent";
+      ctx2.fillStyle = fill;
+      ctx2.beginPath();
+      ctx2.arc(d.x, d.y, R, 0, Math.PI * 2);
+      ctx2.fill();
+      ctx2.shadowBlur = 0;
+    });
+  }
+
+  function frame(now) {
+    if (current !== game) return;
+    const dt = Math.min(0.05, (now - game.last) / 1000);
+    game.last = now;
+    if (W === 0) resize();
+    game.phaseT += dt;
+    setCombo(`R ${game.round}/${ROUNDS}`);
+
+    if (game.phase === "show") {
+      if (game.phaseT > 2) { game.phase = "track"; game.phaseT = 0; msg.textContent = "追跡中… 目を離さないで!"; }
+    } else if (game.phase === "track") {
+      for (const d of game.dots) {
+        d.x += d.vx * dt; d.y += d.vy * dt;
+        if (d.x < R) { d.x = R; d.vx *= -1; }
+        if (d.x > W - R) { d.x = W - R; d.vx *= -1; }
+        if (d.y < R) { d.y = R; d.vy *= -1; }
+        if (d.y > H - R) { d.y = H - R; d.vy *= -1; }
+      }
+      setTime(1 - game.phaseT / trackTime);
+      if (game.phaseT >= trackTime) {
+        game.phase = "pick"; game.phaseT = 0;
+        msg.textContent = `ターゲットだった ${nTargets} 個をタップ!`;
+        setTime(0);
+      }
+    } else if (game.phase === "reveal") {
+      if (game.phaseT > 1.6) {
+        if (game.round >= ROUNDS) {
+          game.stop();
+          finishGame("mot", game.score, [
+            ["パーフェクト", game.perfects + " / " + ROUNDS + " ラウンド"],
+            ["追跡成功", game.totalHit + " / " + ROUNDS * nTargets + " 個"],
+            ["同時追跡数", nTargets + " 個 / 球 " + nDots + " 個"],
+          ]);
+          return;
+        }
+        newRound();
+      }
+    }
+    draw();
+    game.raf = requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(() => { resize(); newRound(); game.last = performance.now(); game.raf = requestAnimationFrame(frame); });
+}
+
+/* =========================================================
+   MODE 3: デュアルタスク
+   ========================================================= */
+function startDual(lv) {
+  const DUR = 60;
+  const mathInterval = Math.max(2.6, 4.6 - lv * 0.2);
+  const orbLife = Math.max(1.0, 2.3 - lv * 0.13);
+  const orbInterval = Math.max(0.9, 1.9 - lv * 0.1);
+  const bombRate = lv >= 4 ? 0.18 : 0;
+
+  stage.innerHTML = `
+    <div class="dual-wrap">
+      <div class="dual-math">
+        <div class="eq" id="dq">— 準備 —</div>
+        <div class="math-timer"><i id="dq-bar" style="width:100%"></i></div>
+        <div class="dual-btns">
+          <button class="b-ok" id="dq-ok">◯ 正しい</button>
+          <button class="b-ng" id="dq-ng">✕ 違う</button>
+        </div>
+      </div>
+      <div class="dual-grid" id="dgrid"></div>
+    </div>`;
+  const eqEl = $("dq"), eqBar = $("dq-bar"), grid = $("dgrid");
+  const cells = [];
+  for (let i = 0; i < 9; i++) {
+    const c = document.createElement("div");
+    c.className = "dcell";
+    grid.appendChild(c);
+    cells.push({ el: c, orb: null, life: 0, bomb: false });
+  }
+
+  const game = {
+    mode: "dual", score: 0, raf: 0, t: 0, last: performance.now(),
+    eq: null, eqT: 0, nextOrb: 0.8,
+    mathOK: 0, mathNG: 0, orbOK: 0, orbNG: 0,
+    streak: 0, mult: 1, maxMult: 1,
+    stop() { cancelAnimationFrame(this.raf); },
+  };
+  current = game;
+
+  function bumpStreak(good) {
+    if (good) {
+      game.streak++;
+      game.mult = game.streak >= 12 ? 3 : (game.streak >= 6 ? 2 : 1);
+      game.maxMult = Math.max(game.maxMult, game.mult);
+    } else { game.streak = 0; game.mult = 1; }
+    setCombo(game.mult > 1 ? "×" + game.mult + " コンボ" : "");
+  }
+  function award(base, x, y, label, color) {
+    const pts = base * game.mult;
+    game.score = Math.max(0, game.score + pts);
+    setScore(game.score);
+    if (x != null) floatPt(x, y, (pts > 0 ? "+" : "") + pts + (label || ""), color);
+  }
+
+  function newEq() {
+    const a = 2 + Math.floor(Math.random() * (7 + lv)),
+          b = 2 + Math.floor(Math.random() * (7 + lv));
+    const op = lv >= 5 && Math.random() < 0.4 ? "×" : (Math.random() < 0.5 ? "+" : "−");
+    let [x, y] = op === "−" && a < b ? [b, a] : [a, b];
+    const real = op === "+" ? x + y : op === "−" ? x - y : x * y;
+    const isTrue = Math.random() < 0.5;
+    let shown = real;
+    if (!isTrue) {
+      const d = [1, -1, 2, -2, 10, -10][Math.floor(Math.random() * 6)];
+      shown = Math.max(0, real + (d === 0 ? 1 : d));
+      if (shown === real) shown = real + 1;
+    }
+    game.eq = { text: `${x} ${op} ${y} = ${shown}`, isTrue: shown === real };
+    game.eqT = mathInterval;
+    eqEl.textContent = game.eq.text;
+    eqEl.className = "eq";
+  }
+  function answerEq(saidTrue) {
+    if (!game.eq) return;
+    ac();
+    const r = stage.getBoundingClientRect();
+    const good = saidTrue === game.eq.isTrue;
+    eqEl.className = "eq " + (good ? "flash-ok" : "flash-ng");
+    if (good) { SFX.good(); bumpStreak(true); award(60, r.width / 2, 80, " 計算", "#56d364"); }
+    else { SFX.bad(); bumpStreak(false); award(-40, r.width / 2, 80, "", "#ff7b72"); game.mathNG++; }
+    if (good) game.mathOK++;
+    game.eq = null;
+    game.eqT = 0.55; // 次の問題まで少し間
+  }
+  $("dq-ok").addEventListener("pointerdown", () => answerEq(true));
+  $("dq-ng").addEventListener("pointerdown", () => answerEq(false));
+
+  cells.forEach((c) => {
+    c.el.addEventListener("pointerdown", e => {
+      if (current !== game || !c.orb) return;
+      ac();
+      const r = stage.getBoundingClientRect();
+      const x = e.clientX - r.left, y = e.clientY - r.top;
+      if (c.bomb) {
+        SFX.bad(); bumpStreak(false);
+        award(-60, x, y, " 罠!", "#ff7b72");
+        game.orbNG++;
+      } else {
+        SFX.tap(); bumpStreak(true);
+        award(40, x, y, "", "#6ee7f7");
+        game.orbOK++;
+      }
+      c.orb.remove(); c.orb = null;
+    });
+  });
+
+  function spawnOrb() {
+    const free = cells.filter(c => !c.orb);
+    if (!free.length) return;
+    const c = free[Math.floor(Math.random() * free.length)];
+    c.bomb = Math.random() < bombRate;
+    c.life = orbLife;
+    c.orb = document.createElement("div");
+    c.orb.className = "orb" + (c.bomb ? " bomb" : "");
+    c.el.appendChild(c.orb);
+  }
+
+  function frame(now) {
+    if (current !== game) return;
+    const dt = Math.min(0.05, (now - game.last) / 1000);
+    game.last = now;
+    game.t += dt;
+
+    // 計算課題
+    game.eqT -= dt;
+    if (game.eq) {
+      eqBar.style.width = Math.max(0, game.eqT / mathInterval * 100) + "%";
+      if (game.eqT <= 0) {
+        SFX.bad(); bumpStreak(false);
+        game.mathNG++;
+        award(-40, null);
+        eqEl.className = "eq flash-ng";
+        game.eq = null; game.eqT = 0.55;
+      }
+    } else {
+      eqBar.style.width = "0%";
+      if (game.eqT <= 0 && game.t < DUR - 1.5) newEq();
+    }
+
+    // オーブ
+    game.nextOrb -= dt;
+    if (game.nextOrb <= 0 && game.t < DUR - 1) {
+      spawnOrb();
+      game.nextOrb = orbInterval * (0.7 + Math.random() * 0.6);
+    }
+    for (const c of cells) {
+      if (!c.orb) continue;
+      c.life -= dt;
+      if (c.life <= 0) {
+        c.orb.remove(); c.orb = null;
+        if (!c.bomb) { // 取り逃し
+          game.orbNG++;
+          bumpStreak(false);
+          game.score = Math.max(0, game.score - 20);
+          setScore(game.score);
+        }
+      }
+    }
+
+    setTime(1 - game.t / DUR);
+    if (game.t >= DUR) {
+      game.stop();
+      const mAcc = game.mathOK + game.mathNG > 0 ? Math.round(game.mathOK / (game.mathOK + game.mathNG) * 100) : 0;
+      const oAcc = game.orbOK + game.orbNG > 0 ? Math.round(game.orbOK / (game.orbOK + game.orbNG) * 100) : 0;
+      finishGame("dual", game.score, [
+        ["計算タスク", `正解 ${game.mathOK}(${mAcc}%)`],
+        ["捕獲タスク", `成功 ${game.orbOK}(${oAcc}%)`],
+        ["最大倍率", "×" + game.maxMult],
+      ]);
+      return;
+    }
+    game.raf = requestAnimationFrame(frame);
+  }
+  game.raf = requestAnimationFrame(frame);
+}
+
+/* ================= モード起動 ================= */
+const INTROS = {
+  reactors: lv => `減っていく <b>${lv < 3 ? 2 : lv < 6 ? 3 : 4} 基の炉</b>をタップで充填し、<br>すべて緑のゾーンに保とう。<br>0% になると停止して大減点。<br>⚠ 警報が出たら素早く 2 回タップ!<br><br>制限時間 60 秒`,
+  mot: lv => `最初に光る <b>${lv < 3 ? 2 : lv < 6 ? 3 : 4} 個のターゲット</b>を覚えて、<br>動き回っても目で追い続けよう。<br>停止したらターゲットだった球をタップ。<br>全 5 ラウンド。`,
+  dual: lv => `<b>上</b>:計算式が正しければ ◯、違えば ✕。<br><b>下</b>:光る球をどんどんタップ。<br>${lv >= 4 ? "赤い球は罠 — 触らないこと。<br>" : ""}両方を同時にさばいてコンボを稼ごう!<br><br>制限時間 60 秒`,
+};
+const STARTERS = { reactors: startReactors, mot: startMOT, dual: startDual };
+
+function launchMode(mode) {
+  currentMode = mode;
+  const lv = SAVE.modes[mode].level;
+  show("game");
+  stage.innerHTML = "";
+  setScore(0); setCombo(""); setTime(1);
+  runIntro(MODE_META[mode].name, lv, INTROS[mode](lv), () => STARTERS[mode](lv));
+}
+
+document.querySelectorAll(".mode-card").forEach(card => {
+  card.addEventListener("click", () => { ac(); launchMode(card.dataset.mode); });
+});
+$("btn-quit").addEventListener("click", () => {
+  if (current) { current.stop(); current = null; }
+  show("home");
+});
+$("btn-home").addEventListener("click", () => show("home"));
+$("btn-retry").addEventListener("click", () => launchMode(currentMode));
+
+renderHome();
+</script>
+</body>
+</html>
