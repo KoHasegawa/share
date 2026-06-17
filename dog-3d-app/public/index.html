@@ -26,22 +26,18 @@
       <div id="bark-bubble" hidden>ワン！</div>
     </div>
 
-    <button
-      id="log-toggle"
-      type="button"
-      class="log-toggle"
-      aria-expanded="false"
-      aria-controls="log-panel"
-    >
-      ログ
-    </button>
-
-    <aside id="log-panel" class="log-panel" aria-hidden="true">
-      <div class="log-panel__header">
-        <h2>解析ログ</h2>
-        <button type="button" class="log-close" data-log-close>閉じる</button>
-      </div>
-      <div class="log-panel__content">
+    <div id="log-wrapper">
+      <button
+        id="log-toggle"
+        type="button"
+        class="log-toggle"
+        aria-expanded="false"
+        aria-controls="log-content"
+      >
+        ログ
+      </button>
+      <div id="log-content" class="is-hidden" aria-hidden="true">
+        <h2 class="log-title">解析ログ</h2>
         <section class="log-block">
           <h3>コマンドJSON</h3>
           <pre id="command-json">[]</pre>
@@ -51,7 +47,7 @@
           <ul id="command-origins"></ul>
         </section>
       </div>
-    </aside>
+    </div>
 
     <div class="input-bar" id="input-bar">
       <div class="status-hud" aria-live="polite">

@@ -27,8 +27,7 @@ function cacheElements() {
   elements.canvas = document.getElementById('scene-canvas');
   elements.barkBubble = document.getElementById('bark-bubble');
   elements.logToggle = document.getElementById('log-toggle');
-  elements.logPanel = document.getElementById('log-panel');
-  elements.logClose = document.querySelector('[data-log-close]');
+  elements.logContent = document.getElementById('log-content');
   elements.inputBar = document.getElementById('input-bar');
 }
 
@@ -82,32 +81,40 @@ function setupClearButton() {
 }
 
 function setupLogPanel() {
-  const { logToggle, logPanel, logClose } = elements;
-  if (!logToggle || !logPanel) {
+  const { logToggle, logContent } = elements;
+  if (!logToggle || !logContent) {
     return;
   }
 
-  const setOpen = (open) => {
-    logPanel.classList.toggle('is-open', open);
-    logPanel.setAttribute('aria-hidden', open ? 'false' : 'true');
-    logToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  const showLog = () => {
+    logContent.classList.remove('is-hidden');
+    logContent.style.display = 'block';
+    logContent.setAttribute('aria-hidden', 'false');
+    logToggle.setAttribute('aria-expanded', 'true');
+  };
+
+  const hideLog = () => {
+    logContent.classList.add('is-hidden');
+    logContent.style.display = 'none';
+    logContent.setAttribute('aria-hidden', 'true');
+    logToggle.setAttribute('aria-expanded', 'false');
   };
 
   logToggle.addEventListener('click', () => {
-    setOpen(!logPanel.classList.contains('is-open'));
-  });
-
-  if (logClose) {
-    logClose.addEventListener('click', () => setOpen(false));
-  }
-
-  window.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') {
-      setOpen(false);
+    if (logContent.classList.contains('is-hidden')) {
+      showLog();
+    } else {
+      hideLog();
     }
   });
 
-  setOpen(false);
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      hideLog();
+    }
+  });
+
+  hideLog();
 }
 
 function setupViewportAdjustment() {
