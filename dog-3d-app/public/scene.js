@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 export function createScene(canvas) {
   const renderer = new THREE.WebGLRenderer({
@@ -14,14 +13,15 @@ export function createScene(canvas) {
   scene.background = new THREE.Color(0xbfd7ff);
 
   const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 100);
-  camera.position.set(6, 4, 8);
-
-  const controls = new OrbitControls(camera, renderer.domElement);
-  controls.target.set(0, 1, 0);
-  controls.enableDamping = true;
+  camera.position.set(0, 1.6, 6);
 
   addLights(scene);
   const targets = addEnvironment(scene);
+  createLookController(renderer.domElement, camera, {
+    target: new THREE.Vector3(0, 0.7, 0),
+    pitchMin: -1.2,
+    pitchMax: 0.6,
+  });
 
   const clock = new THREE.Clock();
 
@@ -38,7 +38,6 @@ export function createScene(canvas) {
     resizeRenderer();
     const delta = clock.getDelta();
     dog.update(delta);
-    controls.update();
     renderer.render(scene, camera);
   }
 
@@ -46,7 +45,6 @@ export function createScene(canvas) {
     scene,
     camera,
     renderer,
-    controls,
     targets,
     clock,
     render,
@@ -117,6 +115,7 @@ function addEnvironment(scene) {
   );
   userMarker.position.set(0, 0.6, 6);
   userMarker.castShadow = true;
+  userMarker.visible = false;
   scene.add(userMarker);
 
   const labelCanvas = makeLabelCanvas('ユーザー位置');
@@ -128,6 +127,7 @@ function addEnvironment(scene) {
   const labelSprite = new THREE.Sprite(labelMaterial);
   labelSprite.position.set(0, 1.7, 6);
   labelSprite.scale.set(2.5, 1.2, 1);
+  labelSprite.visible = false;
   scene.add(labelSprite);
 
   targets.ball = ball.position.clone();
@@ -158,4 +158,107 @@ function makeLabelCanvas(text) {
   ctx.fillText(text, canvas.width / 2, canvas.height / 2);
 
   return canvas;
+}
+
+function createLookController(element, camera, options = {}) {
+  const {
+    target = new THREE.Vector3(0, 1, 0),
+    yawLimit = 2.0,
+    pitchMin = -1.2,
+    pitchMax = 0.6,
+    sensitivity = 0.003,
+  } = options;
+
+  const toTarget = new THREE.Vector3().subVectors(target, camera.position).normalize();
+  let yaw = Math.atan2(toTarget.x, toTarget.z);
+  let pitch = Math.asin(THREE.MathUtils.clamp(toTarget.y, -1, 1));
+  const yawMin = yaw - yawLimit;
+  const yawMax = yaw + yawLimit;
+  const forward = new THREE.Vector3();
+  const lookAtPoint = new THREE.Vector3();
+
+  const pointerState = {
+    active: false,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    startYaw: yaw,
+    startPitch: pitch,
+  };
+
+  const preventContextMenu = (event) => event.preventDefault();
+
+  element.style.touchAction = 'none';
+  updateCameraOrientation();
+
+  element.addEventListener('pointerdown', handlePointerDown);
+  element.addEventListener('wheel', handleWheel, { passive: false });
+  element.addEventListener('contextmenu', preventContextMenu);
+  window.addEventListener('blur', releasePointer);
+
+  function handlePointerDown(event) {
+    element.setPointerCapture(event.pointerId);
+    pointerState.active = true;
+    pointerState.pointerId = event.pointerId;
+    pointerState.startX = event.clientX;
+    pointerState.startY = event.clientY;
+    pointerState.startYaw = yaw;
+    pointerState.startPitch = pitch;
+    element.addEventListener('pointermove', handlePointerMove);
+    element.addEventListener('pointerup', handlePointerUp);
+    element.addEventListener('pointercancel', handlePointerUp);
+  }
+
+  function handlePointerMove(event) {
+    if (!pointerState.active) return;
+    const deltaX = event.clientX - pointerState.startX;
+    const deltaY = event.clientY - pointerState.startY;
+    yaw = THREE.MathUtils.clamp(pointerState.startYaw - deltaX * sensitivity, yawMin, yawMax);
+    pitch = THREE.MathUtils.clamp(pointerState.startPitch - deltaY * sensitivity, pitchMin, pitchMax);
+    updateCameraOrientation();
+  }
+
+  function handlePointerUp() {
+    releasePointer();
+  }
+
+  function handleWheel(event) {
+    event.preventDefault();
+  }
+
+  function releasePointer() {
+    if (!pointerState.active) return;
+    pointerState.active = false;
+    if (pointerState.pointerId !== null) {
+      try {
+        element.releasePointerCapture(pointerState.pointerId);
+      } catch (e) {
+        // ignore if capture already released
+      }
+    }
+    pointerState.pointerId = null;
+    element.removeEventListener('pointermove', handlePointerMove);
+    element.removeEventListener('pointerup', handlePointerUp);
+    element.removeEventListener('pointercancel', handlePointerUp);
+  }
+
+  function updateCameraOrientation() {
+    const cosPitch = Math.cos(pitch);
+    forward.set(
+      Math.sin(yaw) * cosPitch,
+      Math.sin(pitch),
+      Math.cos(yaw) * cosPitch
+    );
+    lookAtPoint.copy(camera.position).add(forward);
+    camera.lookAt(lookAtPoint);
+  }
+
+  return {
+    dispose() {
+      element.removeEventListener('pointerdown', handlePointerDown);
+      element.removeEventListener('wheel', handleWheel);
+      element.removeEventListener('contextmenu', preventContextMenu);
+      window.removeEventListener('blur', releasePointer);
+    },
+  };
 }
