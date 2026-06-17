@@ -1,0 +1,15 @@
+{
+  "name": "dog-3d-app",
+  "version": "1.0.0",
+  "description": "自然文で犬を操作する3D Webアプリ",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check public/parser.js && node --check public/actionQueue.js && node --check public/dog.js && node --check public/scene.js && node --check public/main.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "three": "^0.166.0"
+  }
+}

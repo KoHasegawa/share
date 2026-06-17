@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>犬コマンド3Dアプリ</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./vendor/three/three.module.js",
+          "three/addons/controls/OrbitControls.js": "./vendor/three/controls/OrbitControls.js"
+        }
+      }
+    </script>
+    <script type="module" src="./main.js" defer></script>
+  </head>
+  <body>
+    <div class="app">
+      <header class="app__header">
+        <h1>犬アクション指令スタジオ</h1>
+        <p>自然な日本語で犬への指示を書き、動きを観察しましょう。</p>
+      </header>
+      <main class="app__main">
+        <section class="app__controls">
+          <form id="command-form" autocomplete="off">
+            <label for="command-input">犬への指令</label>
+            <div class="input-row">
+              <input
+                id="command-input"
+                name="command"
+                type="text"
+                placeholder="例: ボールまで走って"
+                required
+              />
+              <button type="submit" class="primary">送信</button>
+            </div>
+          </form>
+          <div class="examples">
+            <span>例文:</span>
+            <button data-example="ボールまで走って">ボールまで走って</button>
+            <button data-example="こっちに来て、おすわりして">こっちに来て、おすわりして</button>
+            <button data-example="しっぽを振って、吠えて">しっぽを振って、吠えて</button>
+            <button data-example="餌の器まで歩いて">餌の器まで歩いて</button>
+          </div>
+          <div class="queue-actions">
+            <button id="clear-queue" type="button">実行中のコマンドを停止</button>
+            <span id="queue-status">待機中</span>
+          </div>
+        </section>
+        <section class="app__scene">
+          <div id="canvas-container">
+            <canvas id="scene-canvas"></canvas>
+            <div id="bark-bubble" hidden>ワン！</div>
+          </div>
+        </section>
+        <section class="app__log">
+          <h2>解析ログ</h2>
+          <div class="log-block">
+            <h3>コマンドJSON</h3>
+            <pre id="command-json">[]</pre>
+          </div>
+          <div class="log-block">
+            <h3>解決経路</h3>
+            <ul id="command-origins"></ul>
+          </div>
+          <div class="log-block">
+            <h3>実行状況</h3>
+            <p id="current-action">未実行</p>
+            <p id="parser-message"></p>
+          </div>
+        </section>
+      </main>
+      <footer class="app__footer">
+        <small>キャッシュとルールでAPI利用を最小化します。</small>
+      </footer>
+    </div>
+  </body>
+</html>
