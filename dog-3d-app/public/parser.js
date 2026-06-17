@@ -127,6 +127,17 @@ export async function parseInput(rawText) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     });
+    if (!response.ok) {
+      // 静的公開版（GitHub Pages 等）ではバックエンドが無いためここに来る。
+      return {
+        commands: [],
+        origins: [],
+        message:
+          'この公開デモではAIによる複雑な文章の解析は利用できません。例文ボタンやルール対応の指示（「おすわり」「ボールまで走って」など）をお試しください。',
+        source: 'no-backend',
+        fallback: true,
+      };
+    }
     const data = await response.json();
     const rawCommands = Array.isArray(data.commands) ? data.commands : [];
     const sanitized = rawCommands.map(sanitizeCommand);
@@ -149,10 +160,13 @@ export async function parseInput(rawText) {
       error: data.error,
     };
   } catch (error) {
+    // ネットワーク不通やバックエンド未起動。静的公開版でも安全に聞き返す。
     return {
       commands: [],
       origins: [],
-      message: `通信エラー: ${error.message}`,
+      message:
+        'AI解析サーバに接続できませんでした。例文ボタンやルール対応の指示（「おすわり」「ボールまで走って」など）をお試しください。',
+      source: 'no-backend',
       fallback: true,
       error: error.message,
     };
