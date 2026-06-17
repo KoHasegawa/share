@@ -6,10 +6,14 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check public/parser.js && node --check public/actionQueue.js && node --check public/dog.js && node --check public/scene.js && node --check public/main.js"
+    "check": "node --check server.js && node --check public/parser.js && node --check public/actionQueue.js && node --check public/dog.js && node --check public/scene.js && node --check public/main.js",
+    "build:dog": "node tools/generate_dog_glb.mjs"
   },
   "dependencies": {
     "express": "^4.19.2",
     "three": "^0.166.0"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "^4.4.0"
   }
 }

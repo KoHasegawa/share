@@ -71,14 +71,37 @@ GitHub Pages へ自動デプロイされます。ワークフローは `dog-3d-a
 複雑な文章のAI解析まで含めて動かしたい場合は、Node が動くホスト（自前サーバ、Render、
 Fly.io、Railway 等）に `server.js` をデプロイし、環境変数 `OPEN_API_KEY` を設定してください。
 
-## 検証
+## モデル再生成と検証
 
-- `npm install`
-- `node --check server.js`
-- `node --check public/parser.js`
-- `node --check public/actionQueue.js`
-- `node --check public/dog.js`
-- `node --check public/scene.js`
-- `node --check public/main.js`
+### 犬モデル（GLB）の再生成
+
+低ポリ犬モデルは `tools/generate_dog_glb.mjs` でコードから生成しています。<br />
+以下のコマンドで `public/models/dog.glb` を再生成できます。
+
+```bash
+npm run build:dog
+```
+
+三次元ソフトで編集したい場合は Blender 用スクリプト `tools/generate_dog_glb.py` を利用してください。ローカルの Blender 環境で次のように実行すると、同じ GLB を再出力できます（CI や本番環境では実行しません）。
+
+```bash
+blender -b -P tools/generate_dog_glb.py
+```
+
+### 実行前チェック
+
+```
+npm install
+npm run build:dog
+npm run check
+```
+
+### ローカル動作確認
+
+```
+OPEN_API_KEY=sk-... node server.js
+```
+
+ブラウザで `http://localhost:3000` を開き、犬モデルが表示されていること、既定で `idle` クリップが再生されること、サンプル指示「ボールまで走って」で `walk` が再生され移動後 `idle` に戻ることを確認してください。`DevTools` から `window.playDogAnimation('walk')` などを呼び出すとクリップ切替を直接確認できます。
 
 上記コマンドがすべて成功することを確認してください。
