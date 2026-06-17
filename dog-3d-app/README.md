@@ -53,6 +53,24 @@ User Input → Command Parser → Command JSON → Action Queue → Dog Controll
 4. **LLM 呼び出し**: 上記で解決できない場合だけ `POST /api/parse` で LLM を使用。
 5. **フォールバック**: LLM 応答が空またはエラーの場合はコマンドなしで「もう一度言ってもらえる？」と表示し、安全に待機します。
 
+## 公開（GitHub Pages）
+
+このリポジトリは `.github/workflows/deploy-pages.yml` により `main` への push 時に
+GitHub Pages へ自動デプロイされます。ワークフローは `dog-3d-app/public/` を
+`dog-3d-app/` として静的配信します（Three.js はローカル同梱のためCDN不要）。
+
+- 公開URL（例）: `https://<ユーザー名>.github.io/share/dog-3d-app/`
+- ルートのトップページ（`index.html`）にも「🐕 犬アクション3D」カードからリンクしています。
+
+**公開版の制約**: GitHub Pages は静的ホスティングのため Node サーバ(`server.js`)が動かず、
+`/api/parse`（LLM解析）は利用できません。APIキーをブラウザに露出させない方針のため、
+公開版では **ローカルルール／キーワード／キャッシュによる解析のみ** が動作します
+（例文ボタンや「おすわり」「ボールまで走って」等の定型指示は問題なく遊べます）。
+ルールで解決できない複雑な文章を送った場合は、AI解析が無効である旨を案内して安全に待機します。
+
+複雑な文章のAI解析まで含めて動かしたい場合は、Node が動くホスト（自前サーバ、Render、
+Fly.io、Railway 等）に `server.js` をデプロイし、環境変数 `OPEN_API_KEY` を設定してください。
+
 ## 検証
 
 - `npm install`

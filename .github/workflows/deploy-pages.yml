@@ -39,6 +39,9 @@ jobs:
           cp -r game-v6 _deploy/game-v6
           cp -r attention-trainer _deploy/attention-trainer
           cp -r parallel-trainer _deploy/parallel-trainer
+          # 犬アクション3D: フロントエンド(public/)を静的配信。
+          # /api/parse(LLM)はNodeサーバが必要なため、公開版はルール解析のみ動作する。
+          cp -r dog-3d-app/public _deploy/dog-3d-app
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
