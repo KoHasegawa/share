@@ -28,7 +28,7 @@ public/
   actionQueue.js  コマンド順次実行キュー
   scene.js        Three.js シーン構築
   dog.js          犬モデルとアニメーション制御
-  vendor/three/   Three.js 本体と OrbitControls（ローカル同梱・CDN不要）
+  vendor/three/   Three.js 本体（ローカル同梱・CDN不要）
 ```
 
 Three.js は `public/vendor/three/` に同梱しているため、外部CDNに接続できない環境でもオフラインで動作します（`index.html` の importmap がローカルパスを参照します）。
@@ -42,7 +42,7 @@ User Input → Command Parser → Command JSON → Action Queue → Dog Controll
 - **Command Parser (`public/parser.js`)**: 完全一致ルールやキーワード判定でコマンドを即時生成。未解決の場合のみサーバに `POST /api/parse` を送り LLM を利用します。入力正規化キーを `localStorage` にキャッシュし、同じ自然文は再解析を省略します。
 - **Action Queue (`public/actionQueue.js`)**: 新しい指令でキューを置き換え、コマンドを順番に実行します。実行中・待機中の状態を UI に通知します。
 - **Dog Controller (`public/dog.js`)**: プリミティブ形状で組んだ犬モデルをコード駆動でアニメーション。移動、姿勢切替、しっぽ振り、ジャンプ、匂いを嗅ぐ等の挙動を制御します。
-- **Three.js Scene (`public/scene.js`)**: 庭とボール・ベッド・餌皿・ユーザーマーカーを配置し、OrbitControls とライティングを設定します。
+- **Three.js Scene (`public/scene.js`)**: 庭とボール・ベッド・餌皿を配置し、**ユーザーの目線位置に固定した一人称カメラ**を設定します。ドラッグで視線（首振り）だけを回し、ユーザーの居場所は移動しません（ズーム無効）。
 - **Express サーバ (`server.js`)**: 静的ファイル配信と `POST /api/parse` のみを提供。OpenAI `gpt-4o-mini` に JSON-only で問い合わせ、失敗時はフォールバックレスポンスを返します。
 
 ## API コスト最適化

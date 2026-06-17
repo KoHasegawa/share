@@ -217,61 +217,140 @@ export class DogController {
   }
 
   buildDog() {
-    const brown = new THREE.MeshStandardMaterial({ color: 0x8d6748, roughness: 0.7 });
-    const dark = new THREE.MeshStandardMaterial({ color: 0x4b3621, roughness: 0.6 });
-    const light = new THREE.MeshStandardMaterial({ color: 0xd9c3a3, roughness: 0.5 });
+    const furMain = new THREE.MeshStandardMaterial({ color: 0x8a6547, roughness: 0.68 });
+    const furDark = new THREE.MeshStandardMaterial({ color: 0x4a3623, roughness: 0.62 });
+    const furLight = new THREE.MeshStandardMaterial({ color: 0xdcc8a8, roughness: 0.45 });
+    const noseMaterial = new THREE.MeshStandardMaterial({ color: 0x251d1a, roughness: 0.3, metalness: 0.1 });
+    const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0x0f1113, roughness: 0.15, metalness: 0.35 });
 
-    const body = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.6, 0.8), brown);
+    const bodyGeometry = new THREE.CapsuleGeometry(0.42, 1.35, 14, 24);
+    bodyGeometry.rotateZ(Math.PI / 2);
+    const body = new THREE.Mesh(bodyGeometry, furMain);
     body.castShadow = true;
     body.receiveShadow = true;
-    body.position.set(0, 0.9, 0);
+    body.position.set(-0.05, 0.95, 0);
 
-    const chest = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.55, 0.85), brown);
+    const bellyGeometry = new THREE.CapsuleGeometry(0.28, 0.55, 12, 18);
+    bellyGeometry.rotateZ(Math.PI / 2);
+    const belly = new THREE.Mesh(bellyGeometry, furLight);
+    belly.position.set(0.08, -0.12, 0);
+    belly.rotation.y = 0.1;
+    belly.castShadow = false;
+    body.add(belly);
+
+    const backPatchGeometry = new THREE.CapsuleGeometry(0.2, 0.7, 12, 18);
+    backPatchGeometry.rotateZ(Math.PI / 2);
+    const backPatch = new THREE.Mesh(backPatchGeometry, furDark);
+    backPatch.position.set(-0.38, 0.12, -0.05);
+    backPatch.rotation.y = -0.2;
+    body.add(backPatch);
+
+    const chestGeometry = new THREE.CapsuleGeometry(0.36, 0.52, 12, 20);
+    chestGeometry.rotateZ(Math.PI / 2);
+    const chest = new THREE.Mesh(chestGeometry, furMain);
     chest.castShadow = true;
-    chest.position.set(0.65, 0.85, 0);
+    chest.receiveShadow = true;
+    chest.position.set(0.72, 0.98, 0.03);
 
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 0.5, 16), brown);
-    neck.position.set(1.05, 1.05, 0);
-    neck.rotation.z = Math.PI / 10;
+    const chestMark = new THREE.Mesh(new THREE.SphereGeometry(0.3, 18, 18), furLight);
+    chestMark.scale.set(0.55, 0.5, 0.7);
+    chestMark.position.set(0.3, -0.08, 0);
+    chest.add(chestMark);
+
+    const neckGeometry = new THREE.CapsuleGeometry(0.19, 0.34, 12, 16);
+    const neck = new THREE.Mesh(neckGeometry, furMain);
+    neckGeometry.rotateZ(Math.PI / 2);
+    neck.position.set(1.04, 1.1, 0);
+    neck.rotation.z = Math.PI / 9;
     neck.castShadow = true;
+    neck.receiveShadow = true;
 
     const headGroup = new THREE.Group();
-    headGroup.position.set(1.3, 1.2, 0);
+    headGroup.position.set(1.28, 1.21, 0);
 
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, 0.5), brown);
-    head.position.set(0, 0, 0);
-    head.castShadow = true;
+    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.33, 28, 24), furMain);
+    skull.castShadow = true;
 
-    const muzzle = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.25, 0.35), light);
-    muzzle.position.set(0.35, -0.05, 0);
+    const cheekMask = new THREE.Mesh(new THREE.SphereGeometry(0.28, 24, 20), furDark);
+    cheekMask.scale.set(0.8, 0.72, 0.78);
+    cheekMask.position.set(-0.12, 0.04, -0.01);
+    skull.add(cheekMask);
+
+    const muzzleGeometry = new THREE.CapsuleGeometry(0.17, 0.28, 12, 18);
+    muzzleGeometry.rotateZ(Math.PI / 2);
+    const muzzle = new THREE.Mesh(muzzleGeometry, furLight);
+    muzzle.position.set(0.42, -0.05, 0);
     muzzle.castShadow = true;
 
-    const nose = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.2), dark);
-    nose.position.set(0.58, -0.02, 0);
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.08, 18, 18), noseMaterial);
+    nose.position.set(0.64, -0.02, 0);
+    nose.castShadow = true;
+    muzzle.add(nose);
 
-    const earLeft = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 10), dark);
+    const mouthLine = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.03, 0.12), noseMaterial);
+    mouthLine.position.set(0.12, -0.08, 0);
+    muzzle.add(mouthLine);
+
+    const lowerJawGeometry = new THREE.CapsuleGeometry(0.12, 0.16, 10, 14);
+    lowerJawGeometry.rotateZ(Math.PI / 2);
+    const lowerJaw = new THREE.Mesh(lowerJawGeometry, furLight);
+    lowerJaw.position.set(0.3, -0.12, 0);
+    muzzle.add(lowerJaw);
+
+    const eyeGeometry = new THREE.SphereGeometry(0.05, 20, 16);
+    const eyeLeft = new THREE.Mesh(eyeGeometry, eyeMaterial);
+    eyeLeft.position.set(0.18, 0.08, 0.15);
+    const eyeRight = eyeLeft.clone();
+    eyeRight.position.z = -0.15;
+
+    const eyeHighlightGeometry = new THREE.SphereGeometry(0.018, 12, 12);
+    const eyeHighlightMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.35, roughness: 0.1 });
+    const eyeHighlightLeft = new THREE.Mesh(eyeHighlightGeometry, eyeHighlightMaterial);
+    eyeHighlightLeft.position.set(0.03, 0.02, 0.02);
+    eyeLeft.add(eyeHighlightLeft);
+    const eyeHighlightRight = eyeHighlightLeft.clone();
+    eyeRight.add(eyeHighlightRight);
+
+    const earGeometry = new THREE.ConeGeometry(0.16, 0.36, 14);
+    const earLeft = new THREE.Mesh(earGeometry, furDark);
+    earLeft.castShadow = true;
+    earLeft.position.set(-0.16, 0.26, 0.2);
+    earLeft.rotation.set(Math.PI * 0.9, -0.1, Math.PI * 0.62);
     const earRight = earLeft.clone();
-    earLeft.position.set(-0.05, 0.28, 0.18);
-    earRight.position.set(-0.05, 0.28, -0.18);
-    earLeft.rotation.z = Math.PI * 0.6;
-    earRight.rotation.z = Math.PI * 0.6;
+    earRight.position.z = -0.2;
+    earRight.rotation.set(Math.PI * 0.9, 0.1, Math.PI * 0.38);
 
-    headGroup.add(head, muzzle, nose, earLeft, earRight);
+    headGroup.add(skull, muzzle, eyeLeft, eyeRight, earLeft, earRight);
 
     const tailGroup = new THREE.Group();
-    tailGroup.position.set(-0.95, 1.05, 0);
-    const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 0.7, 12), brown);
-    tail.rotation.z = Math.PI / 2.8;
-    tail.position.set(-0.35, 0, 0);
+    tailGroup.position.set(-1.02, 1.07, 0);
+
+    const tailGeometry = new THREE.CapsuleGeometry(0.07, 0.42, 10, 14);
+    tailGeometry.rotateZ(Math.PI / 2.4);
+    const tail = new THREE.Mesh(tailGeometry, furMain);
+    tail.rotation.z = Math.PI / 2.9;
+    tail.position.set(-0.32, 0.05, 0);
     tail.castShadow = true;
+
+    const tailMidGeometry = new THREE.CapsuleGeometry(0.055, 0.32, 10, 12);
+    tailMidGeometry.rotateZ(Math.PI / 2.2);
+    const tailMid = new THREE.Mesh(tailMidGeometry, furMain);
+    tailMid.position.set(-0.28, 0.02, 0);
+    tailMid.rotation.z = Math.PI / 7;
+    tailMid.castShadow = true;
+
+    const tailTip = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), furDark);
+    tailTip.position.set(-0.2, 0, 0);
+    tailMid.add(tailTip);
+
+    tail.add(tailMid);
     tailGroup.add(tail);
 
-    const legMaterial = dark;
     this.legs = {
-      frontLeft: makeLeg(0.6, 0.3, 0.28, legMaterial),
-      frontRight: makeLeg(0.6, 0.3, -0.28, legMaterial),
-      backLeft: makeLeg(-0.6, 0.3, 0.28, legMaterial),
-      backRight: makeLeg(-0.6, 0.3, -0.28, legMaterial),
+      frontLeft: makeLeg(0.62, 0.34, 0.26, furDark, furLight),
+      frontRight: makeLeg(0.62, 0.34, -0.26, furDark, furLight),
+      backLeft: makeLeg(-0.58, 0.32, 0.28, furDark, furLight),
+      backRight: makeLeg(-0.58, 0.32, -0.28, furDark, furLight),
     };
 
     Object.values(this.legs).forEach((leg) => this.root.add(leg.group));
@@ -486,18 +565,49 @@ export class DogController {
   }
 }
 
-function makeLeg(x, y, z, material) {
+function makeLeg(x, y, z, furMaterial, pawMaterial) {
   const group = new THREE.Group();
   group.position.set(x, y, z);
-  const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 1.1, 10), material);
-  leg.position.y = -0.55;
-  leg.castShadow = true;
-  leg.receiveShadow = true;
-  const paw = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.18, 0.3), material);
-  paw.position.set(0, -1.1, 0);
+
+  const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 0.58, 12), furMaterial);
+  upper.position.y = -0.29;
+  upper.castShadow = true;
+  upper.receiveShadow = true;
+
+  const knee = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 14), furMaterial);
+  knee.position.y = -0.58;
+  knee.castShadow = true;
+
+  const lower = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.62, 12), furMaterial);
+  lower.position.y = -0.9;
+  lower.castShadow = true;
+  lower.receiveShadow = true;
+
+  const ankle = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 14), furMaterial);
+  ankle.position.y = -1.19;
+  ankle.castShadow = true;
+
+  const paw = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.16, 0.34), pawMaterial);
+  paw.position.set(0, -1.28, 0.04);
   paw.castShadow = true;
-  group.add(leg, paw);
-  return { group, leg, paw };
+  paw.receiveShadow = true;
+
+  const padMaterial = new THREE.MeshStandardMaterial({ color: 0x2d1c16, roughness: 0.7 });
+  const pad = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.05, 0.26), padMaterial);
+  pad.position.set(0, -0.05, -0.02);
+  paw.add(pad);
+
+  const toeGeometry = new THREE.CapsuleGeometry(0.04, 0.05, 6, 10);
+  const toeOffsets = [-0.1, -0.03, 0.04, 0.11];
+  toeOffsets.forEach((offset) => {
+    const toe = new THREE.Mesh(toeGeometry, pawMaterial);
+    toe.rotation.z = Math.PI / 2;
+    toe.position.set(offset, -0.05, 0.16);
+    paw.add(toe);
+  });
+
+  group.add(upper, knee, lower, ankle, paw);
+  return { group, leg: upper, paw };
 }
 
 function easeInOut(t) {

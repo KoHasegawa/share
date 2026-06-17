@@ -11,6 +11,8 @@ function init() {
   setupScene();
   setupForm();
   setupClearButton();
+  setupLogPanel();
+  setupViewportAdjustment();
 }
 
 function cacheElements() {
@@ -24,6 +26,10 @@ function cacheElements() {
   elements.clearButton = document.getElementById('clear-queue');
   elements.canvas = document.getElementById('scene-canvas');
   elements.barkBubble = document.getElementById('bark-bubble');
+  elements.logToggle = document.getElementById('log-toggle');
+  elements.logPanel = document.getElementById('log-panel');
+  elements.logClose = document.querySelector('[data-log-close]');
+  elements.inputBar = document.getElementById('input-bar');
 }
 
 function setupExamples() {
@@ -73,6 +79,61 @@ function setupClearButton() {
       elements.actionQueue.clear();
     }
   });
+}
+
+function setupLogPanel() {
+  const { logToggle, logPanel, logClose } = elements;
+  if (!logToggle || !logPanel) {
+    return;
+  }
+
+  const setOpen = (open) => {
+    logPanel.classList.toggle('is-open', open);
+    logPanel.setAttribute('aria-hidden', open ? 'false' : 'true');
+    logToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  };
+
+  logToggle.addEventListener('click', () => {
+    setOpen(!logPanel.classList.contains('is-open'));
+  });
+
+  if (logClose) {
+    logClose.addEventListener('click', () => setOpen(false));
+  }
+
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      setOpen(false);
+    }
+  });
+
+  setOpen(false);
+}
+
+function setupViewportAdjustment() {
+  const { inputBar } = elements;
+  if (!inputBar) {
+    return;
+  }
+
+  const applyOffset = () => {
+    const viewport = window.visualViewport;
+    if (viewport) {
+      const bottomOffset = Math.max(window.innerHeight - viewport.height - viewport.offsetTop, 0);
+      inputBar.style.setProperty('--keyboard-offset', `${bottomOffset}px`);
+      document.documentElement.style.setProperty('--keyboard-offset', `${bottomOffset}px`);
+    } else {
+      inputBar.style.setProperty('--keyboard-offset', '0px');
+      document.documentElement.style.setProperty('--keyboard-offset', '0px');
+    }
+  };
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', applyOffset);
+    window.visualViewport.addEventListener('scroll', applyOffset);
+  }
+  window.addEventListener('resize', applyOffset);
+  applyOffset();
 }
 
 function applyParseResult(result) {
