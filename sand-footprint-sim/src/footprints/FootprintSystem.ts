@@ -18,9 +18,9 @@ export interface Footprint {
 }
 
 export interface FootprintCompositeData {
-  readonly count: number;
-  readonly posYawAge: Float32Array;
-  readonly scaleDepthSideSeed: Float32Array;
+  count: number;
+  posYawAge: Float32Array;
+  scaleDepthAspectSeed: Float32Array;
 }
 
 export class FootprintSystem {
@@ -30,7 +30,12 @@ export class FootprintSystem {
   private readonly type: FootprintType;
 
   private readonly compositePosYawAge = new Float32Array(MAX_FOOTPRINTS * 4);
-  private readonly compositeScaleDepthSideSeed = new Float32Array(MAX_FOOTPRINTS * 4);
+  private readonly compositeScaleDepthAspectSeed = new Float32Array(MAX_FOOTPRINTS * 4);
+  private readonly compositeData: FootprintCompositeData = {
+    count: 0,
+    posYawAge: this.compositePosYawAge,
+    scaleDepthAspectSeed: this.compositeScaleDepthAspectSeed
+  };
   private compositeCount = 0;
 
   private readonly quantizedAge = new Uint8Array(MAX_FOOTPRINTS);
@@ -41,6 +46,7 @@ export class FootprintSystem {
 
   private stride: number;
   private lateralOffset: number;
+  private baseScale: number;
 
   private trailInitialized = false;
   private readonly trailLastPos = new THREE.Vector2();
@@ -63,6 +69,7 @@ export class FootprintSystem {
     const size = Math.max(0.1, footprintWorldSize);
     this.stride = size * 0.62;
     this.lateralOffset = size * 0.17;
+    this.baseScale = size * 0.5;
 
     for (let i = 0; i < MAX_FOOTPRINTS; i += 1) {
       this.buffer[i] = {
@@ -77,6 +84,8 @@ export class FootprintSystem {
         ageNormalized: 1,
         depthScale: 0
       };
+      this.quantizedAge[i] = 255;
+      this.quantizedDepth[i] = 0;
     }
   }
 
@@ -88,6 +97,7 @@ export class FootprintSystem {
     const size = Math.max(0.1, worldSize);
     this.stride = size * 0.62;
     this.lateralOffset = size * 0.17;
+    this.baseScale = size * 0.5;
   }
 
   clear(): void {
@@ -105,8 +115,37 @@ export class FootprintSystem {
     this.trailInitialized = false;
     this.trailDistanceSinceSpawn = 0;
     this.compositeCount = 0;
+    this.compositeData.count = 0;
+    this.zeroCompositeRange(0);
 
     this._revision += 1;
+  }
+
+  clearPassedByWashFront(front: number): boolean {
+    let changed = false;
+    for (let i = 0; i < MAX_FOOTPRINTS; i += 1) {
+      const fp = this.buffer[i];
+      if (!fp.active) {
+        continue;
+      }
+      if (fp.pos.y >= front) {
+        fp.active = false;
+        fp.age = 0;
+        fp.ageNormalized = 1;
+        fp.depthScale = 0;
+        this.quantizedAge[i] = 255;
+        this.quantizedDepth[i] = 0;
+        changed = true;
+      }
+    }
+
+    if (!changed) {
+      return false;
+    }
+
+    this.rebuildCompositeSnapshot();
+    this._revision += 1;
+    return true;
   }
 
   addAlongTrail(pos: THREE.Vector2, dir: THREE.Vector2): void {
@@ -189,31 +228,21 @@ export class FootprintSystem {
       this.compositePosYawAge[outBase + 2] = fp.yaw;
       this.compositePosYawAge[outBase + 3] = fp.ageNormalized;
 
-      this.compositeScaleDepthSideSeed[outBase] = fp.scale;
-      this.compositeScaleDepthSideSeed[outBase + 1] = fp.depthScale;
-      this.compositeScaleDepthSideSeed[outBase + 2] = fp.side;
-      this.compositeScaleDepthSideSeed[outBase + 3] = fp.seed;
+      this.compositeScaleDepthAspectSeed[outBase] = fp.scale;
+      this.compositeScaleDepthAspectSeed[outBase + 1] = fp.depthScale;
+      this.compositeScaleDepthAspectSeed[outBase + 2] = fp.side * this.type.aspect;
+      this.compositeScaleDepthAspectSeed[outBase + 3] = fp.seed;
 
       activeCount += 1;
     }
 
-    for (let i = activeCount; i < MAX_FOOTPRINTS; i += 1) {
-      const base = i * 4;
-      this.compositePosYawAge[base] = 0;
-      this.compositePosYawAge[base + 1] = 0;
-      this.compositePosYawAge[base + 2] = 0;
-      this.compositePosYawAge[base + 3] = 1;
-
-      this.compositeScaleDepthSideSeed[base] = 0;
-      this.compositeScaleDepthSideSeed[base + 1] = 0;
-      this.compositeScaleDepthSideSeed[base + 2] = 0;
-      this.compositeScaleDepthSideSeed[base + 3] = 0;
-    }
+    this.zeroCompositeRange(activeCount);
 
     if (this.compositeCount !== activeCount) {
       this.compositeCount = activeCount;
       changed = true;
     }
+    this.compositeData.count = this.compositeCount;
 
     if (changed) {
       this._revision += 1;
@@ -221,11 +250,7 @@ export class FootprintSystem {
   }
 
   getCompositeData(): FootprintCompositeData {
-    return {
-      count: this.compositeCount,
-      posYawAge: this.compositePosYawAge,
-      scaleDepthSideSeed: this.compositeScaleDepthSideSeed
-    };
+    return this.compositeData;
   }
 
   getStampTexture(edgeCollapse: number): THREE.Texture {
@@ -276,8 +301,8 @@ export class FootprintSystem {
       .addScaledVector(dir, alongJitter)
       .addScaledVector(this.perp, side * this.lateralOffset + acrossJitter);
 
-    fp.yaw = Math.atan2(dir.y, dir.x) + angleJitter;
-    fp.scale = scaleJitter;
+    fp.yaw = Math.atan2(dir.y, dir.x) + Math.PI * 0.5 + angleJitter;
+    fp.scale = this.baseScale * scaleJitter;
     fp.side = side;
     fp.seed = this.random01() * 1000.0;
     fp.bornTime = performance.now() * 0.001;
@@ -290,6 +315,48 @@ export class FootprintSystem {
 
     this.writeIndex = (this.writeIndex + 1) % MAX_FOOTPRINTS;
     this._revision += 1;
+  }
+
+  private zeroCompositeRange(fromIndex: number): void {
+    for (let i = fromIndex; i < MAX_FOOTPRINTS; i += 1) {
+      const base = i * 4;
+      this.compositePosYawAge[base] = 0;
+      this.compositePosYawAge[base + 1] = 0;
+      this.compositePosYawAge[base + 2] = 0;
+      this.compositePosYawAge[base + 3] = 1;
+
+      this.compositeScaleDepthAspectSeed[base] = 0;
+      this.compositeScaleDepthAspectSeed[base + 1] = 0;
+      this.compositeScaleDepthAspectSeed[base + 2] = this.type.aspect;
+      this.compositeScaleDepthAspectSeed[base + 3] = 0;
+    }
+  }
+
+  private rebuildCompositeSnapshot(): void {
+    let activeCount = 0;
+    for (let i = 0; i < MAX_FOOTPRINTS; i += 1) {
+      const fp = this.buffer[i];
+      if (!fp.active) {
+        continue;
+      }
+
+      const outBase = activeCount * 4;
+      this.compositePosYawAge[outBase] = fp.pos.x;
+      this.compositePosYawAge[outBase + 1] = fp.pos.y;
+      this.compositePosYawAge[outBase + 2] = fp.yaw;
+      this.compositePosYawAge[outBase + 3] = fp.ageNormalized;
+
+      this.compositeScaleDepthAspectSeed[outBase] = fp.scale;
+      this.compositeScaleDepthAspectSeed[outBase + 1] = fp.depthScale;
+      this.compositeScaleDepthAspectSeed[outBase + 2] = fp.side * this.type.aspect;
+      this.compositeScaleDepthAspectSeed[outBase + 3] = fp.seed;
+
+      activeCount += 1;
+    }
+
+    this.zeroCompositeRange(activeCount);
+    this.compositeCount = activeCount;
+    this.compositeData.count = activeCount;
   }
 
   private random01(): number {

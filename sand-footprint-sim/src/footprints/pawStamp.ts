@@ -7,6 +7,9 @@ export interface PawStampOptions {
   claw: number;
 }
 
+type StampCanvas = HTMLCanvasElement | OffscreenCanvas;
+type StampContext = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
+
 function fract(v: number): number {
   return v - Math.floor(v);
 }
@@ -15,19 +18,37 @@ function hash3(x: number, y: number, z: number): number {
   return fract(Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453123);
 }
 
-function createCanvas(size: number): OffscreenCanvas | HTMLCanvasElement {
+function isIOSFamilyUserAgent(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false;
+  }
+  return /iPad|iPhone|iPod/.test(navigator.userAgent);
+}
+
+function createCanvas(size: number): StampCanvas {
+  if (typeof document !== 'undefined' && !isIOSFamilyUserAgent()) {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    return canvas;
+  }
+
+  if (typeof document !== 'undefined') {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    return canvas;
+  }
+
   if (typeof OffscreenCanvas !== 'undefined') {
     return new OffscreenCanvas(size, size);
   }
 
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  return canvas;
+  throw new Error('No canvas implementation available');
 }
 
 function drawIrregularBlob(
-  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  ctx: StampContext,
   cx: number,
   cy: number,
   rx: number,
@@ -48,7 +69,11 @@ function drawIrregularBlob(
 
     const n1 = hash3(bx * 1.7 + seed, by * 1.7, seed + 0.13);
     const n2 = hash3(bx * 3.3 + seed * 1.1, by * 3.3, seed + 0.47);
-    const irregular = 1.0 - edgeCollapse * 0.35 + (n1 * 2.0 - 1.0) * edgeCollapse * 0.32 + (n2 * 2.0 - 1.0) * edgeCollapse * 0.18;
+    const irregular =
+      1.0 -
+      edgeCollapse * 0.35 +
+      (n1 * 2.0 - 1.0) * edgeCollapse * 0.32 +
+      (n2 * 2.0 - 1.0) * edgeCollapse * 0.18;
 
     const ex = bx * rx * irregular;
     const ey = by * ry * irregular;
@@ -66,19 +91,29 @@ function drawIrregularBlob(
   ctx.fill();
 }
 
+function makeFallbackTexture(): THREE.DataTexture {
+  const fallback = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
+  fallback.needsUpdate = true;
+  fallback.colorSpace = THREE.NoColorSpace;
+  return fallback;
+}
+
 export function generatePawStampTexture(opts: PawStampOptions): THREE.Texture {
   const size = Math.max(32, Math.floor(opts.size));
   const edgeCollapse = THREE.MathUtils.clamp(opts.edgeCollapse, 0, 1);
   const claw = THREE.MathUtils.clamp(opts.claw, 0, 1);
   const seed = opts.seed;
 
-  const canvas = createCanvas(size);
-  const ctx = canvas.getContext('2d');
+  let canvas: StampCanvas;
+  try {
+    canvas = createCanvas(size);
+  } catch {
+    return makeFallbackTexture();
+  }
 
+  const ctx = canvas.getContext('2d');
   if (!ctx) {
-    const fallback = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
-    fallback.needsUpdate = true;
-    return fallback;
+    return makeFallbackTexture();
   }
 
   ctx.clearRect(0, 0, size, size);
@@ -154,7 +189,7 @@ export function generatePawStampTexture(opts: PawStampOptions): THREE.Texture {
   }
   ctx.putImageData(img, 0, 0);
 
-  const texture = new THREE.CanvasTexture(canvas as HTMLCanvasElement);
+  const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.NoColorSpace;
   texture.wrapS = THREE.ClampToEdgeWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;

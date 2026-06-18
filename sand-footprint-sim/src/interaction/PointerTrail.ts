@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export type ScreenToWorldFn = (px: number, py: number) => THREE.Vector2;
+export type ScreenToWorldFn = (px: number, py: number, target?: THREE.Vector2) => THREE.Vector2;
 export type PointerMoveCallback = (worldPos: THREE.Vector2, dir: THREE.Vector2) => void;
 
 const DEFAULT_SMOOTHING = 18.0;
@@ -14,6 +14,7 @@ export class PointerTrail {
   private activePointerId = -1;
   private isActive = false;
 
+  private readonly worldPos = new THREE.Vector2();
   private readonly currentPos = new THREE.Vector2();
   private readonly previousPos = new THREE.Vector2();
   private readonly rawDir = new THREE.Vector2();
@@ -29,12 +30,14 @@ export class PointerTrail {
       return;
     }
 
+    event.preventDefault();
+
     this.activePointerId = event.pointerId;
     this.isActive = true;
 
-    const world = this.screenToWorld(event.clientX, event.clientY);
-    this.currentPos.copy(world);
-    this.previousPos.copy(world);
+    this.screenToWorld(event.clientX, event.clientY, this.worldPos);
+    this.currentPos.copy(this.worldPos);
+    this.previousPos.copy(this.worldPos);
     this.rawDir.set(0, 0);
     this.smoothDir.set(0, 1);
     this.lastEventTimeMs = event.timeStamp;
@@ -49,8 +52,10 @@ export class PointerTrail {
       return;
     }
 
-    const world = this.screenToWorld(event.clientX, event.clientY);
-    this.currentPos.copy(world);
+    event.preventDefault();
+
+    this.screenToWorld(event.clientX, event.clientY, this.worldPos);
+    this.currentPos.copy(this.worldPos);
 
     this.rawDir.subVectors(this.currentPos, this.previousPos);
     const lenSq = this.rawDir.lengthSq();
@@ -84,6 +89,8 @@ export class PointerTrail {
       return;
     }
 
+    event.preventDefault();
+
     if (typeof this.dom.releasePointerCapture === 'function') {
       this.dom.releasePointerCapture(event.pointerId);
     }
@@ -101,11 +108,11 @@ export class PointerTrail {
     this.dom = dom;
     this.screenToWorld = screenToWorld;
 
-    dom.addEventListener('pointerdown', this.handlePointerDown, { passive: true });
-    dom.addEventListener('pointermove', this.handlePointerMove, { passive: true });
-    dom.addEventListener('pointerup', this.handlePointerUp, { passive: true });
-    dom.addEventListener('pointercancel', this.handlePointerUp, { passive: true });
-    dom.addEventListener('pointerleave', this.handlePointerUp, { passive: true });
+    dom.addEventListener('pointerdown', this.handlePointerDown, { passive: false });
+    dom.addEventListener('pointermove', this.handlePointerMove, { passive: false });
+    dom.addEventListener('pointerup', this.handlePointerUp, { passive: false });
+    dom.addEventListener('pointercancel', this.handlePointerUp, { passive: false });
+    dom.addEventListener('pointerleave', this.handlePointerUp, { passive: false });
   }
 
   detach(): void {

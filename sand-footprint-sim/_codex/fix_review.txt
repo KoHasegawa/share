@@ -1,0 +1,1627 @@
+TASK — apply REVIEW FIXES. A reviewer audited the running behavior. Fix ALL items below. Output the
+FULL corrected content of every file you change, in the ===FILE:=== format. Keep tsc --noEmit passing
+(three 0.181) and avoid per-frame allocations.
+
+IMPORTANT GLSL ordering note for the BLOCKER: in MeshStandard fragment shader, <map_fragment> executes
+BEFORE <roughnessmap_fragment> in main(). So declare the shared wash variables (washEdge, dryBack,
+frontBand, wetFilm) ONCE in the <map_fragment> injection, and in <roughnessmap_fragment> just REUSE them
+(no re-declaration). That removes the duplicate-definition compile error.
+
+REVIEW FINDINGS:
+[BLOCKER] src/sand/sandShader.ts:276 and :294 — Fragment shader redeclares `washEdge`, `dryBack`, `frontBand`, `wetFilm` in both `<roughnessmap_fragment>` and `<map_fragment>`, causing GLSL compile failure.  
+Fix: compute these once with unique names in one earlier chunk, or use distinct variable names / helper function so declarations are not duplicated in `main()`.
+
+[MAJOR] src/sand/SandPlane.ts:63 — `RGBAFormat + HalfFloatType + LinearFilter` render target is created without checking renderability/filtering support; on iOS/mobile this can produce incomplete FBOs or zero sampling.  
+Fix: check `renderer.extensions.has('EXT_color_buffer_float')` / capabilities before using half-float RT; fall back to `UnsignedByteType` encoded height or `NearestFilter`/lower precision path.
+
+[MAJOR] src/sand/SandPlane.ts:111 — Height compose world mapping is vertically flipped relative to the rotated plane geometry. Pointer footprints will appear mirrored along world Z.  
+Fix: change compose mapping to `vec2 world = vec2((vUv.x - 0.5) * uPlaneSize, (0.5 - vUv.y) * uPlaneSize);` and adjust height-normal Z derivative sign accordingly.
+
+[MAJOR] src/footprints/FootprintSystem.ts:264 — Paw yaw is aligned to local +X, but the stamp’s toes point toward local -Y, so footprints are rotated ~90° from travel direction.  
+Fix: set yaw so local -Y points along `dir`, e.g. `fp.yaw = Math.atan2(dir.y, dir.x) + Math.PI * 0.5 + angleJitter`.
+
+[MAJOR] src/sand/sandShader.ts:386 — `setHeightTexture()` sets `material.needsUpdate = true` every heightfield rebuild, causing avoidable shader program recompiles while footprints age.  
+Fix: only set `needsUpdate` when the shader structure changes or before first compile; updating `shaderHeightMap.value`/texel uniforms does not require recompilation.
+
+[MAJOR] src/sand/sandShader.ts:275 — `macroNormal` is built in object/world-like coordinates but mixed with Three’s fragment `normal`, which is in view space. Lighting on dents will be wrong, especially as camera/light changes.  
+Fix: transform the sampled heightfield normal into view space before mixing, or perturb normals in the same coordinate space as Three’s `normal_fragment_maps`.
+
+[MAJOR] src/main.ts:80 — Wash only masks/darkens visually during the sweep; the heightfield dents are not actually cleared until the wave finishes. Dents remain geometrically visible behind/under the wash front.  
+Fix: either clear/recompose footprints progressively based on wash front, or remove/age footprints as the sweep passes their world position.
+
+[MAJOR] src/footprints/FootprintSystem.ts:61 and :257 — `footprintWorldSize` only affects stride/lateral offset, not the actual stamp scale sent to the height shader; resize/size changes do not affect paw size.  
+Fix: store a base footprint scale from `setFootprintWorldSize()` and use it in `fp.scale = baseScale * scaleJitter`.
+
+[MAJOR] src/footprints/pawStamp.ts:156 — `CanvasTexture` is constructed from `canvas as HTMLCanvasElement`; when `OffscreenCanvas` is used, this relies on runtime support that is inconsistent on Safari/iOS.  
+Fix: prefer regular `HTMLCanvasElement` on Safari/iOS or explicitly support `OffscreenCanvas` upload with a tested fallback texture path.
+
+[MINOR] src/sand/SandPlane.ts:253 — `getCompositeData()` returns a newly allocated object on each rebuild, which can happen frequently while footprints decay.  
+Fix: return a stable object or expose arrays/count directly to avoid churn.
+
+[MINOR] src/scene/createCamera.ts:42 — `screenToWorld()` allocates a new `THREE.Vector2` for every pointer move.  
+Fix: allow an optional target vector or reuse a cached vector in `PointerTrail`.
+
+[MINOR] src/interaction/PointerTrail.ts:118 — Pointer listeners are passive and never call `preventDefault`; on mobile Safari touch gestures may scroll/zoom instead of drawing reliably unless CSS disables it.  
+Fix: ensure the canvas has `touch-action: none; user-select: none;` and consider non-passive `pointerdown/move` if needed.
+
+[MINOR] src/footprints/footprintTypes.ts:9 — `FootprintType.aspect` is never used, so non-square paw proportions cannot be represented in the compose shader.  
+Fix: pass aspect/non-uniform scale into `uFootB` or apply it in local stamp UV calculation.
+ADDITIONAL MANAGER GUIDANCE:
+- For the [MAJOR] half-float RT: check renderer.extensions.has('EXT_color_buffer_float'); if absent, fall
+  back to FloatType only if 'OES_texture_float_linear' allows linear, else use HalfFloat with NearestFilter,
+  and as a last resort UnsignedByteType with height encoded/offset (height can be negative: encode as
+  0.5+height*k and decode in the sand/normal shader). Pick a robust path that works on iOS Safari WebGL2.
+- For orientation/mirroring (compose world flip + paw yaw): the GOAL is footprints appear exactly under the
+  finger position and the paw points ALONG the drag direction, with left/right prints alternating to the
+  sides of the path. Make the compose UV->world mapping and the yaw consistent so this holds. The plane
+  geometry is PlaneGeometry rotated -90deg about X (so geometry +Y(uv.y) maps to world -Z). Ensure pointer
+  world XZ from camera.screenToWorld matches the compose sampling.
+- For wash clearing dents progressively: as the wave front passes a footprint's world position, drop/age
+  that footprint so the heightfield dent disappears with the wave (not only at the end). Recompose when the
+  set changes. Keep footprintSystem.clear() at full completion as a safety reset.
+- Address the MINOR allocation issues (getCompositeData stable object; screenToWorld optional target reused
+  by PointerTrail) since per-frame allocation is a stated constraint.
+- Ensure canvas/body have touch-action:none (styles.css) and PointerTrail prevents default where needed so
+  mobile Safari draws instead of scrolling.
+
+================ CURRENT FILES ================
+
+----- src/sand/sandShader.ts -----
+import * as THREE from 'three';
+import { SandParams } from './sandParams';
+
+export interface SandShaderUniforms {
+  moisture: THREE.Uniform<number>;
+  hardness: THREE.Uniform<number>;
+  grainSize: THREE.Uniform<number>;
+  cohesion: THREE.Uniform<number>;
+  bodyWeight: THREE.Uniform<number>;
+  footprintDepth: THREE.Uniform<number>;
+  rimHeight: THREE.Uniform<number>;
+  edgeCollapse: THREE.Uniform<number>;
+  decaySpeed: THREE.Uniform<number>;
+  darkeningStrength: THREE.Uniform<number>;
+  noiseStrength: THREE.Uniform<number>;
+  washFront: THREE.Uniform<number>;
+  washProgress: THREE.Uniform<number>;
+  displacementScale: THREE.Uniform<number>;
+}
+
+export interface SandMaterialBundle {
+  material: THREE.MeshStandardMaterial;
+  uniforms: SandShaderUniforms;
+  updateFromParams: (params: SandParams) => void;
+  setHeightTexture: (texture: THREE.Texture | null) => void;
+}
+
+function fract(v: number): number {
+  return v - Math.floor(v);
+}
+
+function hash2(x: number, y: number): number {
+  return fract(Math.sin(x * 127.1 + y * 311.7) * 43758.5453123);
+}
+
+function smoothstep01(t: number): number {
+  return t * t * (3 - 2 * t);
+}
+
+function valueNoise2(x: number, y: number): number {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const x1 = x0 + 1;
+  const y1 = y0 + 1;
+
+  const fx = x - x0;
+  const fy = y - y0;
+  const ux = smoothstep01(fx);
+  const uy = smoothstep01(fy);
+
+  const n00 = hash2(x0, y0);
+  const n10 = hash2(x1, y0);
+  const n01 = hash2(x0, y1);
+  const n11 = hash2(x1, y1);
+
+  const nx0 = n00 + (n10 - n00) * ux;
+  const nx1 = n01 + (n11 - n01) * ux;
+  return nx0 + (nx1 - nx0) * uy;
+}
+
+function fbm(x: number, y: number, octaves: number): number {
+  let value = 0;
+  let amplitude = 0.5;
+  let frequency = 1.0;
+  let totalAmplitude = 0;
+
+  for (let i = 0; i < octaves; i += 1) {
+    value += valueNoise2(x * frequency, y * frequency) * amplitude;
+    totalAmplitude += amplitude;
+    frequency *= 2.03;
+    amplitude *= 0.5;
+  }
+
+  return totalAmplitude > 0 ? value / totalAmplitude : 0;
+}
+
+function buildSandMaps(size = 256): {
+  albedo: THREE.DataTexture;
+  normal: THREE.DataTexture;
+  roughness: THREE.DataTexture;
+} {
+  const albedoData = new Uint8Array(size * size * 4);
+  const normalData = new Uint8Array(size * size * 4);
+  const roughnessData = new Uint8Array(size * size * 4);
+  const height = new Float32Array(size * size);
+
+  const lowFreqScale = 4.5;
+  const midFreqScale = 14.0;
+  const grainFreqScale = 48.0;
+
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const idx = y * size + x;
+      const u = x / size;
+      const v = y / size;
+
+      const low = fbm(u * lowFreqScale, v * lowFreqScale, 4);
+      const mid = fbm(u * midFreqScale, v * midFreqScale, 3);
+      const grain = fbm(u * grainFreqScale, v * grainFreqScale, 2);
+
+      const h = low * 0.6 + mid * 0.28 + grain * 0.12;
+      height[idx] = h;
+
+      const variation = (h - 0.5) * 0.24;
+      const warmBias = fbm(u * 9.3 + 19.1, v * 9.3 + 3.7, 2) * 0.08 - 0.04;
+
+      const r = Math.min(1, Math.max(0, 0.79 + variation + warmBias * 0.8));
+      const g = Math.min(1, Math.max(0, 0.72 + variation * 0.7 + warmBias * 0.55));
+      const b = Math.min(1, Math.max(0, 0.58 + variation * 0.45 + warmBias * 0.2));
+
+      const base = idx * 4;
+      albedoData[base] = Math.round(r * 255);
+      albedoData[base + 1] = Math.round(g * 255);
+      albedoData[base + 2] = Math.round(b * 255);
+      albedoData[base + 3] = 255;
+
+      const rough = Math.min(1, Math.max(0, 0.8 - grain * 0.25 + mid * 0.08));
+      const rough8 = Math.round(rough * 255);
+      roughnessData[base] = rough8;
+      roughnessData[base + 1] = rough8;
+      roughnessData[base + 2] = rough8;
+      roughnessData[base + 3] = 255;
+    }
+  }
+
+  const sampleHeight = (x: number, y: number): number => {
+    const xx = (x + size) % size;
+    const yy = (y + size) % size;
+    return height[yy * size + xx];
+  };
+
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const base = (y * size + x) * 4;
+
+      const dx = sampleHeight(x + 1, y) - sampleHeight(x - 1, y);
+      const dy = sampleHeight(x, y + 1) - sampleHeight(x, y - 1);
+
+      const nx = -dx * 3.6;
+      const ny = -dy * 3.6;
+      const nz = 1.0;
+
+      const invLen = 1.0 / Math.sqrt(nx * nx + ny * ny + nz * nz);
+      const sx = nx * invLen;
+      const sy = ny * invLen;
+      const sz = nz * invLen;
+
+      normalData[base] = Math.round((sx * 0.5 + 0.5) * 255);
+      normalData[base + 1] = Math.round((sy * 0.5 + 0.5) * 255);
+      normalData[base + 2] = Math.round((sz * 0.5 + 0.5) * 255);
+      normalData[base + 3] = 255;
+    }
+  }
+
+  const albedo = new THREE.DataTexture(albedoData, size, size, THREE.RGBAFormat);
+  albedo.colorSpace = THREE.SRGBColorSpace;
+  albedo.wrapS = THREE.RepeatWrapping;
+  albedo.wrapT = THREE.RepeatWrapping;
+  albedo.minFilter = THREE.LinearMipmapLinearFilter;
+  albedo.magFilter = THREE.LinearFilter;
+  albedo.generateMipmaps = true;
+  albedo.needsUpdate = true;
+
+  const normal = new THREE.DataTexture(normalData, size, size, THREE.RGBAFormat);
+  normal.wrapS = THREE.RepeatWrapping;
+  normal.wrapT = THREE.RepeatWrapping;
+  normal.minFilter = THREE.LinearMipmapLinearFilter;
+  normal.magFilter = THREE.LinearFilter;
+  normal.generateMipmaps = true;
+  normal.needsUpdate = true;
+
+  const roughness = new THREE.DataTexture(roughnessData, size, size, THREE.RGBAFormat);
+  roughness.wrapS = THREE.RepeatWrapping;
+  roughness.wrapT = THREE.RepeatWrapping;
+  roughness.minFilter = THREE.LinearMipmapLinearFilter;
+  roughness.magFilter = THREE.LinearFilter;
+  roughness.generateMipmaps = true;
+  roughness.needsUpdate = true;
+
+  return { albedo, normal, roughness };
+}
+
+export function createSandMaterial(initialParams: SandParams): SandMaterialBundle {
+  const maps = buildSandMaps(256);
+
+  const material = new THREE.MeshStandardMaterial({
+    color: new THREE.Color('#c7b27e'),
+    map: maps.albedo,
+    normalMap: maps.normal,
+    normalScale: new THREE.Vector2(0.35, 0.35),
+    roughnessMap: maps.roughness,
+    roughness: 0.78,
+    metalness: 0.0
+  });
+
+  material.map?.repeat.set(8, 8);
+  material.normalMap?.repeat.set(16, 16);
+  material.roughnessMap?.repeat.set(8, 8);
+
+  const uniforms: SandShaderUniforms = {
+    moisture: new THREE.Uniform(initialParams.moisture),
+    hardness: new THREE.Uniform(initialParams.hardness),
+    grainSize: new THREE.Uniform(initialParams.grainSize),
+    cohesion: new THREE.Uniform(initialParams.cohesion),
+    bodyWeight: new THREE.Uniform(initialParams.bodyWeight),
+    footprintDepth: new THREE.Uniform(initialParams.footprintDepth),
+    rimHeight: new THREE.Uniform(initialParams.rimHeight),
+    edgeCollapse: new THREE.Uniform(initialParams.edgeCollapse),
+    decaySpeed: new THREE.Uniform(initialParams.decaySpeed),
+    darkeningStrength: new THREE.Uniform(initialParams.darkeningStrength),
+    noiseStrength: new THREE.Uniform(initialParams.noiseStrength),
+    washFront: new THREE.Uniform(1e6),
+    washProgress: new THREE.Uniform(0),
+    displacementScale: new THREE.Uniform(initialParams.footprintDepth * 0.45)
+  };
+
+  const fallbackHeightData = new Float32Array([0, 0, 0, 1]);
+  const fallbackHeightTexture = new THREE.DataTexture(fallbackHeightData, 1, 1, THREE.RGBAFormat, THREE.FloatType);
+  fallbackHeightTexture.needsUpdate = true;
+  fallbackHeightTexture.minFilter = THREE.LinearFilter;
+  fallbackHeightTexture.magFilter = THREE.LinearFilter;
+  fallbackHeightTexture.wrapS = THREE.ClampToEdgeWrapping;
+  fallbackHeightTexture.wrapT = THREE.ClampToEdgeWrapping;
+  fallbackHeightTexture.generateMipmaps = false;
+
+  const shaderHeightMap = new THREE.Uniform<THREE.Texture>(fallbackHeightTexture);
+  const shaderHeightTexel = new THREE.Uniform(new THREE.Vector2(1, 1));
+
+  material.onBeforeCompile = (shader): void => {
+    shader.uniforms.sandHeightMap = shaderHeightMap;
+    shader.uniforms.sandHeightTexel = shaderHeightTexel;
+    shader.uniforms.displacementScale = uniforms.displacementScale;
+    shader.uniforms.darkeningStrength = uniforms.darkeningStrength;
+    shader.uniforms.washFront = uniforms.washFront;
+    shader.uniforms.washProgress = uniforms.washProgress;
+
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+uniform sampler2D sandHeightMap;
+uniform float displacementScale;
+varying vec2 vSandUv;
+varying vec2 vSandWorld;`
+      )
+      .replace(
+        '#include <uv_vertex>',
+        `#include <uv_vertex>
+vSandUv = uv;`
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `vec3 transformed = vec3( position );
+float sandHeight = texture2D( sandHeightMap, vSandUv ).r;
+transformed += objectNormal * (sandHeight * displacementScale);`
+      )
+      .replace(
+        '#include <worldpos_vertex>',
+        `#include <worldpos_vertex>
+vSandWorld = worldPosition.xz;`
+      );
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+uniform sampler2D sandHeightMap;
+uniform vec2 sandHeightTexel;
+uniform float displacementScale;
+uniform float darkeningStrength;
+uniform float washFront;
+uniform float washProgress;
+varying vec2 vSandUv;
+varying vec2 vSandWorld;
+
+float hash12(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+}`
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+float hL = texture2D(sandHeightMap, vSandUv - vec2(sandHeightTexel.x, 0.0)).r;
+float hR = texture2D(sandHeightMap, vSandUv + vec2(sandHeightTexel.x, 0.0)).r;
+float hD = texture2D(sandHeightMap, vSandUv - vec2(0.0, sandHeightTexel.y)).r;
+float hU = texture2D(sandHeightMap, vSandUv + vec2(0.0, sandHeightTexel.y)).r;
+vec3 macroNormal = normalize(vec3((hL - hR) * displacementScale * 8.5, 1.0, (hD - hU) * displacementScale * 8.5));
+normal = normalize(mix(normal, macroNormal, 0.72));`
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+float washEdge = smoothstep(washFront - 0.35, washFront + 0.35, vSandWorld.y) * clamp(washProgress * 1.35, 0.0, 1.0);
+float dryBack = smoothstep(0.45, 1.0, washProgress);
+float frontBand = 1.0 - smoothstep(0.02, 0.32, abs(vSandWorld.y - washFront));
+float wetFilm = clamp(washEdge * (1.0 - dryBack * 0.82) + frontBand * 0.72, 0.0, 1.0);
+roughnessFactor = mix(roughnessFactor, 0.22, wetFilm);`
+      )
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+float washEdge = smoothstep(washFront - 0.35, washFront + 0.35, vSandWorld.y) * clamp(washProgress * 1.35, 0.0, 1.0);
+float dryBack = smoothstep(0.45, 1.0, washProgress);
+float frontBand = 1.0 - smoothstep(0.02, 0.32, abs(vSandWorld.y - washFront));
+float wetFilm = clamp(washEdge * (1.0 - dryBack * 0.82) + frontBand * 0.72, 0.0, 1.0);
+
+float footprintDark = texture2D(sandHeightMap, vSandUv).g;
+float remainingDark = footprintDark * (1.0 - washEdge);
+diffuseColor.rgb *= (1.0 - darkeningStrength * clamp(remainingDark, 0.0, 1.0));
+
+float foamNoise = hash12(vSandWorld * 5.3 + vec2(washProgress * 33.7, washProgress * 17.9));
+float foam = frontBand * smoothstep(0.58, 0.9, foamNoise) * (1.0 - dryBack);
+
+vec3 wetTint = vec3(0.88, 0.84, 0.76);
+diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * wetTint, wetFilm * 0.34);
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.96, 0.97, 0.99), foam * 0.65);`
+      );
+  };
+
+  material.customProgramCacheKey = (): string => 'sand-heightfield-v2';
+
+  const dryColor = new THREE.Color('#d5bf8d');
+  const wetColor = new THREE.Color('#9f8a64');
+
+  const updateFromParams = (params: SandParams): void => {
+    uniforms.moisture.value = params.moisture;
+    uniforms.hardness.value = params.hardness;
+    uniforms.grainSize.value = params.grainSize;
+    uniforms.cohesion.value = params.cohesion;
+    uniforms.bodyWeight.value = params.bodyWeight;
+    uniforms.footprintDepth.value = params.footprintDepth;
+    uniforms.rimHeight.value = params.rimHeight;
+    uniforms.edgeCollapse.value = params.edgeCollapse;
+    uniforms.decaySpeed.value = params.decaySpeed;
+    uniforms.darkeningStrength.value = params.darkeningStrength;
+    uniforms.noiseStrength.value = params.noiseStrength;
+    uniforms.displacementScale.value = params.footprintDepth * 0.45;
+
+    const moisture = THREE.MathUtils.clamp(params.moisture, 0, 1);
+    material.color.copy(dryColor).lerp(wetColor, moisture * 0.9);
+
+    const roughness = THREE.MathUtils.clamp(0.86 - moisture * 0.42 + params.hardness * 0.06, 0.2, 0.95);
+    material.roughness = roughness;
+
+    const normalStrength = THREE.MathUtils.clamp(0.16 + params.noiseStrength * 0.7, 0.05, 1.25);
+    material.normalScale.setScalar(normalStrength);
+  };
+
+  const setHeightTexture = (texture: THREE.Texture | null): void => {
+    const target = texture ?? fallbackHeightTexture;
+    shaderHeightMap.value = target;
+
+    let width = 1;
+    let height = 1;
+    const image = (target as THREE.Texture).image as { width?: number; height?: number } | undefined;
+    if (image && typeof image.width === 'number' && typeof image.height === 'number') {
+      width = Math.max(1, image.width);
+      height = Math.max(1, image.height);
+    }
+
+    shaderHeightTexel.value.set(1 / width, 1 / height);
+    material.needsUpdate = true;
+  };
+
+  material.userData.sandUniforms = uniforms;
+
+  updateFromParams(initialParams);
+
+  return {
+    material,
+    uniforms,
+    updateFromParams,
+    setHeightTexture
+  };
+}
+
+----- src/sand/SandPlane.ts -----
+import * as THREE from 'three';
+import { RendererLike } from '../scene/createRenderer';
+import { FootprintSystem, MAX_FOOTPRINTS } from '../footprints/FootprintSystem';
+import { SandParams } from './sandParams';
+import { createSandMaterial, SandMaterialBundle } from './sandShader';
+
+interface ComposeRenderer {
+  setRenderTarget: (target: THREE.WebGLRenderTarget | null) => void;
+  render: (scene: THREE.Scene, camera: THREE.Camera) => void;
+}
+
+function canCompose(renderer: RendererLike): renderer is RendererLike & ComposeRenderer {
+  const candidate = renderer as unknown as Partial<ComposeRenderer>;
+  return typeof candidate.setRenderTarget === 'function' && typeof candidate.render === 'function';
+}
+
+export class SandPlane {
+  public readonly mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>;
+  public readonly materialBundle: SandMaterialBundle;
+
+  public heightField: THREE.Texture | null = null;
+
+  private readonly geometry: THREE.PlaneGeometry;
+  private readonly renderer: RendererLike;
+  private readonly planeSize: number;
+
+  private footprintSystem: FootprintSystem | null = null;
+  private lastFootprintRevision = -1;
+
+  private readonly heightTarget: THREE.WebGLRenderTarget;
+
+  private readonly composeScene = new THREE.Scene();
+  private readonly composeCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  private readonly composeMaterial: THREE.ShaderMaterial;
+  private readonly composeQuad: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+
+  private readonly stampA: THREE.Vector4[] = new Array<THREE.Vector4>(MAX_FOOTPRINTS);
+  private readonly stampB: THREE.Vector4[] = new Array<THREE.Vector4>(MAX_FOOTPRINTS);
+
+  private composeDirty = true;
+  private lastRimHeight = Number.NaN;
+  private lastCohesion = Number.NaN;
+  private lastEdgeCollapse = Number.NaN;
+  private lastBodyWeight = Number.NaN;
+  private lastFootDepth = Number.NaN;
+
+  constructor(renderer: RendererLike, initialParams: SandParams, size = 40, segments = 256) {
+    this.renderer = renderer;
+    this.planeSize = size;
+
+    this.geometry = new THREE.PlaneGeometry(size, size, segments, segments);
+    this.geometry.rotateX(-Math.PI / 2);
+
+    this.materialBundle = createSandMaterial(initialParams);
+
+    this.mesh = new THREE.Mesh(this.geometry, this.materialBundle.material);
+    this.mesh.receiveShadow = true;
+    this.mesh.castShadow = false;
+
+    this.heightTarget = new THREE.WebGLRenderTarget(1024, 1024, {
+      format: THREE.RGBAFormat,
+      type: THREE.HalfFloatType,
+      depthBuffer: false,
+      stencilBuffer: false,
+      magFilter: THREE.LinearFilter,
+      minFilter: THREE.LinearFilter
+    });
+    this.heightTarget.texture.wrapS = THREE.ClampToEdgeWrapping;
+    this.heightTarget.texture.wrapT = THREE.ClampToEdgeWrapping;
+    this.heightTarget.texture.needsUpdate = true;
+
+    for (let i = 0; i < MAX_FOOTPRINTS; i += 1) {
+      this.stampA[i] = new THREE.Vector4(0, 0, 0, 1);
+      this.stampB[i] = new THREE.Vector4(0, 0, 0, 0);
+    }
+
+    this.composeMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uFootprintCount: { value: 0 },
+        uStampMap: { value: null as THREE.Texture | null },
+        uStampTexel: { value: 1 / 256 },
+        uPlaneSize: { value: this.planeSize },
+        uFootA: { value: this.stampA },
+        uFootB: { value: this.stampB },
+        uRimHeight: { value: initialParams.rimHeight * 0.7 },
+        uCohesion: { value: initialParams.cohesion },
+        uEdgeCollapse: { value: initialParams.edgeCollapse },
+        uBodyWeight: { value: initialParams.bodyWeight },
+        uFootDepth: { value: initialParams.footprintDepth }
+      },
+      vertexShader: `
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = vec4(position.xy, 0.0, 1.0);
+}`,
+      fragmentShader: `
+precision highp float;
+uniform int uFootprintCount;
+uniform sampler2D uStampMap;
+uniform float uStampTexel;
+uniform float uPlaneSize;
+uniform vec4 uFootA[${MAX_FOOTPRINTS}];
+uniform vec4 uFootB[${MAX_FOOTPRINTS}];
+uniform float uRimHeight;
+uniform float uCohesion;
+uniform float uEdgeCollapse;
+uniform float uBodyWeight;
+uniform float uFootDepth;
+varying vec2 vUv;
+
+float hash12(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+}
+
+void main() {
+  vec2 world = (vUv - 0.5) * uPlaneSize;
+  float height = 0.0;
+  float dark = 0.0;
+
+  for (int i = 0; i < ${MAX_FOOTPRINTS}; i++) {
+    if (i >= uFootprintCount) {
+      break;
+    }
+
+    vec4 a = uFootA[i]; // x,z,yaw,ageNorm
+    vec4 b = uFootB[i]; // scale,depth,side,seed
+
+    float c = cos(a.z);
+    float s = sin(a.z);
+
+    vec2 rel = world - a.xy;
+    vec2 local = vec2(c * rel.x + s * rel.y, -s * rel.x + c * rel.y) / max(1e-4, b.x);
+    vec2 suv = local * 0.5 + 0.5;
+
+    if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0) {
+      continue;
+    }
+
+    float mask = texture2D(uStampMap, suv).r;
+    if (mask <= 1e-4) {
+      continue;
+    }
+
+    float n = hash12(local * 7.3 + vec2(b.w * 1.31, b.w * 2.17));
+    float collapse = mix(1.0, smoothstep(uEdgeCollapse, 1.0, n), uEdgeCollapse * 0.78);
+    mask *= collapse;
+
+    float blurX = texture2D(uStampMap, suv + vec2(uStampTexel, 0.0)).r;
+    float blurXm = texture2D(uStampMap, suv - vec2(uStampTexel, 0.0)).r;
+    float blurY = texture2D(uStampMap, suv + vec2(0.0, uStampTexel)).r;
+    float blurYm = texture2D(uStampMap, suv - vec2(0.0, uStampTexel)).r;
+    float outer = max(max(blurX, blurXm), max(blurY, blurYm));
+
+    float ageFade = 1.0 - a.w;
+    float depth = b.y * (0.55 + 0.45 * uBodyWeight) * (0.55 + 0.45 * uFootDepth);
+    float depression = mask * depth;
+
+    float rim = max(outer - mask, 0.0);
+    rim *= uRimHeight * (0.45 + 0.55 * uCohesion) * depth * (0.6 + 0.4 * ageFade);
+
+    height += (-depression + rim);
+    dark += mask * depth * ageFade;
+  }
+
+  gl_FragColor = vec4(height, clamp(dark, 0.0, 1.0), 0.0, 1.0);
+}`
+    });
+    this.composeMaterial.depthTest = false;
+    this.composeMaterial.depthWrite = false;
+
+    this.composeQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.composeMaterial);
+    this.composeScene.add(this.composeQuad);
+
+    this.applyFootprints(this.heightTarget.texture);
+    this.resetWash();
+    this.rebuildHeightField(initialParams);
+  }
+
+  setFootprintSystem(system: FootprintSystem): void {
+    this.footprintSystem = system;
+    this.lastFootprintRevision = -1;
+    this.composeDirty = true;
+  }
+
+  update(_dt: number, params: SandParams): void {
+    this.materialBundle.updateFromParams(params);
+
+    const rim = params.rimHeight * 0.7;
+    this.composeMaterial.uniforms.uRimHeight.value = rim;
+    this.composeMaterial.uniforms.uCohesion.value = params.cohesion;
+    this.composeMaterial.uniforms.uEdgeCollapse.value = params.edgeCollapse;
+    this.composeMaterial.uniforms.uBodyWeight.value = params.bodyWeight;
+    this.composeMaterial.uniforms.uFootDepth.value = params.footprintDepth;
+
+    if (
+      rim !== this.lastRimHeight ||
+      params.cohesion !== this.lastCohesion ||
+      params.edgeCollapse !== this.lastEdgeCollapse ||
+      params.bodyWeight !== this.lastBodyWeight ||
+      params.footprintDepth !== this.lastFootDepth
+    ) {
+      this.lastRimHeight = rim;
+      this.lastCohesion = params.cohesion;
+      this.lastEdgeCollapse = params.edgeCollapse;
+      this.lastBodyWeight = params.bodyWeight;
+      this.lastFootDepth = params.footprintDepth;
+      this.composeDirty = true;
+    }
+
+    const revisionChanged = this.footprintSystem && this.footprintSystem.revision !== this.lastFootprintRevision;
+    if (revisionChanged || this.composeDirty) {
+      this.rebuildHeightField(params);
+      if (this.footprintSystem) {
+        this.lastFootprintRevision = this.footprintSystem.revision;
+      }
+      this.composeDirty = false;
+    }
+  }
+
+  applyFootprints(heightTexture: THREE.Texture | null): void {
+    this.heightField = heightTexture;
+    this.materialBundle.setHeightTexture(heightTexture);
+  }
+
+  applyWash(front: number): void {
+    this.setWash(front, this.materialBundle.uniforms.washProgress.value);
+  }
+
+  setWash(front: number, progress: number): void {
+    this.materialBundle.uniforms.washFront.value = front;
+    this.materialBundle.uniforms.washProgress.value = progress;
+  }
+
+  resetWash(): void {
+    this.materialBundle.uniforms.washFront.value = 1e6;
+    this.materialBundle.uniforms.washProgress.value = 0;
+  }
+
+  clearFootprintContributions(params: SandParams): void {
+    this.lastFootprintRevision = -1;
+    this.composeDirty = true;
+    this.rebuildHeightField(params);
+    if (this.footprintSystem) {
+      this.lastFootprintRevision = this.footprintSystem.revision;
+    }
+    this.composeDirty = false;
+  }
+
+  dispose(): void {
+    this.geometry.dispose();
+    this.materialBundle.material.dispose();
+    this.heightTarget.dispose();
+    this.composeMaterial.dispose();
+    this.composeQuad.geometry.dispose();
+  }
+
+  private rebuildHeightField(params: SandParams): void {
+    const renderer = this.renderer;
+    if (!canCompose(renderer)) {
+      return;
+    }
+
+    let count = 0;
+    if (this.footprintSystem) {
+      const stamp = this.footprintSystem.getStampTexture(params.edgeCollapse);
+      this.composeMaterial.uniforms.uStampMap.value = stamp;
+      const stampImage = stamp.image as { width?: number } | undefined;
+      const width = stampImage && typeof stampImage.width === 'number' ? Math.max(1, stampImage.width) : 256;
+      this.composeMaterial.uniforms.uStampTexel.value = 1 / width;
+
+      const data = this.footprintSystem.getCompositeData();
+      count = data.count;
+      this.composeMaterial.uniforms.uFootprintCount.value = count;
+
+      for (let i = 0; i < count; i += 1) {
+        const base = i * 4;
+        this.stampA[i].set(
+          data.posYawAge[base],
+          data.posYawAge[base + 1],
+          data.posYawAge[base + 2],
+          data.posYawAge[base + 3]
+        );
+        this.stampB[i].set(
+          data.scaleDepthSideSeed[base],
+          data.scaleDepthSideSeed[base + 1],
+          data.scaleDepthSideSeed[base + 2],
+          data.scaleDepthSideSeed[base + 3]
+        );
+      }
+    } else {
+      this.composeMaterial.uniforms.uFootprintCount.value = 0;
+      this.composeMaterial.uniforms.uStampMap.value = null;
+    }
+
+    for (let i = count; i < MAX_FOOTPRINTS; i += 1) {
+      this.stampA[i].set(0, 0, 0, 1);
+      this.stampB[i].set(0, 0, 0, 0);
+    }
+
+    renderer.setRenderTarget(this.heightTarget);
+    renderer.render(this.composeScene, this.composeCamera);
+    renderer.setRenderTarget(null);
+
+    this.applyFootprints(this.heightTarget.texture);
+  }
+}
+
+----- src/footprints/FootprintSystem.ts -----
+import * as THREE from 'three';
+import { SandParams } from '../sand/sandParams';
+import { FootprintType } from './footprintTypes';
+
+export const MAX_FOOTPRINTS = 15;
+
+export interface Footprint {
+  active: boolean;
+  pos: THREE.Vector2;
+  yaw: number;
+  scale: number;
+  side: -1 | 1;
+  seed: number;
+  bornTime: number;
+  age: number;
+  ageNormalized: number;
+  depthScale: number;
+}
+
+export interface FootprintCompositeData {
+  readonly count: number;
+  readonly posYawAge: Float32Array;
+  readonly scaleDepthSideSeed: Float32Array;
+}
+
+export class FootprintSystem {
+  public readonly buffer: Footprint[] = new Array<Footprint>(MAX_FOOTPRINTS);
+
+  private readonly params: SandParams;
+  private readonly type: FootprintType;
+
+  private readonly compositePosYawAge = new Float32Array(MAX_FOOTPRINTS * 4);
+  private readonly compositeScaleDepthSideSeed = new Float32Array(MAX_FOOTPRINTS * 4);
+  private compositeCount = 0;
+
+  private readonly quantizedAge = new Uint8Array(MAX_FOOTPRINTS);
+  private readonly quantizedDepth = new Uint8Array(MAX_FOOTPRINTS);
+
+  private writeIndex = 0;
+  private nextSide: -1 | 1 = -1;
+
+  private stride: number;
+  private lateralOffset: number;
+
+  private trailInitialized = false;
+  private readonly trailLastPos = new THREE.Vector2();
+  private trailDistanceSinceSpawn = 0;
+
+  private readonly spawnPos = new THREE.Vector2();
+  private readonly spawnDir = new THREE.Vector2();
+  private readonly perp = new THREE.Vector2();
+
+  private randomState = 0x6d2b79f5;
+  private stampTexture: THREE.Texture | null = null;
+  private stampEdgeCollapseQuantized = -1;
+
+  private _revision = 1;
+
+  constructor(type: FootprintType, params: SandParams, footprintWorldSize: number) {
+    this.type = type;
+    this.params = params;
+
+    const size = Math.max(0.1, footprintWorldSize);
+    this.stride = size * 0.62;
+    this.lateralOffset = size * 0.17;
+
+    for (let i = 0; i < MAX_FOOTPRINTS; i += 1) {
+      this.buffer[i] = {
+        active: false,
+        pos: new THREE.Vector2(),
+        yaw: 0,
+        scale: 1,
+        side: -1,
+        seed: 0,
+        bornTime: 0,
+        age: 0,
+        ageNormalized: 1,
+        depthScale: 0
+      };
+    }
+  }
+
+  get revision(): number {
+    return this._revision;
+  }
+
+  setFootprintWorldSize(worldSize: number): void {
+    const size = Math.max(0.1, worldSize);
+    this.stride = size * 0.62;
+    this.lateralOffset = size * 0.17;
+  }
+
+  clear(): void {
+    for (let i = 0; i < MAX_FOOTPRINTS; i += 1) {
+      this.buffer[i].active = false;
+      this.buffer[i].age = 0;
+      this.buffer[i].ageNormalized = 1;
+      this.buffer[i].depthScale = 0;
+      this.quantizedAge[i] = 255;
+      this.quantizedDepth[i] = 0;
+    }
+
+    this.writeIndex = 0;
+    this.nextSide = -1;
+    this.trailInitialized = false;
+    this.trailDistanceSinceSpawn = 0;
+    this.compositeCount = 0;
+
+    this._revision += 1;
+  }
+
+  addAlongTrail(pos: THREE.Vector2, dir: THREE.Vector2): void {
+    const dirLenSq = dir.lengthSq();
+    if (dirLenSq <= 1e-8) {
+      return;
+    }
+
+    if (!this.trailInitialized) {
+      this.trailInitialized = true;
+      this.trailLastPos.copy(pos);
+      this.trailDistanceSinceSpawn = this.stride;
+    }
+
+    this.spawnDir.copy(dir).normalize();
+    const segmentLen = this.spawnPos.subVectors(pos, this.trailLastPos).length();
+
+    if (segmentLen <= 1e-8) {
+      return;
+    }
+
+    let consumed = 0;
+    while (consumed < segmentLen) {
+      const remainingToSpawn = this.stride - this.trailDistanceSinceSpawn;
+      const step = Math.min(remainingToSpawn, segmentLen - consumed);
+      consumed += step;
+      this.trailDistanceSinceSpawn += step;
+
+      if (this.trailDistanceSinceSpawn >= this.stride - 1e-6) {
+        const t = consumed / segmentLen;
+        this.spawnPos.lerpVectors(this.trailLastPos, pos, t);
+        this.spawnFootprint(this.spawnPos, this.spawnDir);
+        this.trailDistanceSinceSpawn = 0;
+      }
+    }
+
+    this.trailLastPos.copy(pos);
+  }
+
+  update(nowSeconds: number): void {
+    let changed = false;
+    let activeCount = 0;
+
+    const decaySpeed = Math.max(0.02, this.params.decaySpeed);
+    const depthBase =
+      (0.35 + this.params.bodyWeight * 0.85) *
+      (0.2 + this.params.footprintDepth * 0.9) *
+      (1.0 - this.params.hardness * 0.55);
+
+    for (let i = 0; i < MAX_FOOTPRINTS; i += 1) {
+      const fp = this.buffer[i];
+      if (!fp.active) {
+        continue;
+      }
+
+      fp.age = Math.max(0, nowSeconds - fp.bornTime);
+      fp.ageNormalized = THREE.MathUtils.clamp(fp.age * decaySpeed * 0.23, 0, 1);
+
+      const decay = Math.exp(-fp.age * decaySpeed * 0.9);
+      fp.depthScale = depthBase * decay;
+
+      const qAge = Math.round(fp.ageNormalized * 255);
+      const qDepth = Math.round(THREE.MathUtils.clamp(fp.depthScale, 0, 1) * 255);
+
+      if (qAge !== this.quantizedAge[i] || qDepth !== this.quantizedDepth[i]) {
+        this.quantizedAge[i] = qAge;
+        this.quantizedDepth[i] = qDepth;
+        changed = true;
+      }
+
+      if (fp.ageNormalized >= 1 && fp.depthScale < 0.02) {
+        fp.active = false;
+        changed = true;
+        continue;
+      }
+
+      const outBase = activeCount * 4;
+      this.compositePosYawAge[outBase] = fp.pos.x;
+      this.compositePosYawAge[outBase + 1] = fp.pos.y;
+      this.compositePosYawAge[outBase + 2] = fp.yaw;
+      this.compositePosYawAge[outBase + 3] = fp.ageNormalized;
+
+      this.compositeScaleDepthSideSeed[outBase] = fp.scale;
+      this.compositeScaleDepthSideSeed[outBase + 1] = fp.depthScale;
+      this.compositeScaleDepthSideSeed[outBase + 2] = fp.side;
+      this.compositeScaleDepthSideSeed[outBase + 3] = fp.seed;
+
+      activeCount += 1;
+    }
+
+    for (let i = activeCount; i < MAX_FOOTPRINTS; i += 1) {
+      const base = i * 4;
+      this.compositePosYawAge[base] = 0;
+      this.compositePosYawAge[base + 1] = 0;
+      this.compositePosYawAge[base + 2] = 0;
+      this.compositePosYawAge[base + 3] = 1;
+
+      this.compositeScaleDepthSideSeed[base] = 0;
+      this.compositeScaleDepthSideSeed[base + 1] = 0;
+      this.compositeScaleDepthSideSeed[base + 2] = 0;
+      this.compositeScaleDepthSideSeed[base + 3] = 0;
+    }
+
+    if (this.compositeCount !== activeCount) {
+      this.compositeCount = activeCount;
+      changed = true;
+    }
+
+    if (changed) {
+      this._revision += 1;
+    }
+  }
+
+  getCompositeData(): FootprintCompositeData {
+    return {
+      count: this.compositeCount,
+      posYawAge: this.compositePosYawAge,
+      scaleDepthSideSeed: this.compositeScaleDepthSideSeed
+    };
+  }
+
+  getStampTexture(edgeCollapse: number): THREE.Texture {
+    const qEdge = Math.round(THREE.MathUtils.clamp(edgeCollapse, 0, 1) * 64);
+    if (this.stampTexture && qEdge === this.stampEdgeCollapseQuantized) {
+      return this.stampTexture;
+    }
+
+    if (this.stampTexture) {
+      this.stampTexture.dispose();
+      this.stampTexture = null;
+    }
+
+    this.stampEdgeCollapseQuantized = qEdge;
+    this.stampTexture = this.type.generateStampTexture({
+      size: 256,
+      edgeCollapse: qEdge / 64,
+      seed: 1337.0,
+      claw: 0.35 + this.params.hardness * 0.5
+    });
+
+    return this.stampTexture;
+  }
+
+  dispose(): void {
+    if (this.stampTexture) {
+      this.stampTexture.dispose();
+      this.stampTexture = null;
+    }
+  }
+
+  private spawnFootprint(pos: THREE.Vector2, dir: THREE.Vector2): void {
+    const fp = this.buffer[this.writeIndex];
+
+    this.perp.set(-dir.y, dir.x);
+    const side = this.nextSide;
+    this.nextSide = side === -1 ? 1 : -1;
+
+    const angleJitter = (this.random01() * 2 - 1) * 0.12;
+    const scaleJitter = 1.0 + (this.random01() * 2 - 1) * 0.06;
+
+    const alongJitter = (this.random01() * 2 - 1) * this.stride * 0.08;
+    const acrossJitter = (this.random01() * 2 - 1) * this.lateralOffset * 0.28;
+
+    fp.active = true;
+    fp.pos
+      .copy(pos)
+      .addScaledVector(dir, alongJitter)
+      .addScaledVector(this.perp, side * this.lateralOffset + acrossJitter);
+
+    fp.yaw = Math.atan2(dir.y, dir.x) + angleJitter;
+    fp.scale = scaleJitter;
+    fp.side = side;
+    fp.seed = this.random01() * 1000.0;
+    fp.bornTime = performance.now() * 0.001;
+    fp.age = 0;
+    fp.ageNormalized = 0;
+    fp.depthScale = 1.0;
+
+    this.quantizedAge[this.writeIndex] = 0;
+    this.quantizedDepth[this.writeIndex] = 255;
+
+    this.writeIndex = (this.writeIndex + 1) % MAX_FOOTPRINTS;
+    this._revision += 1;
+  }
+
+  private random01(): number {
+    this.randomState = (1664525 * this.randomState + 1013904223) >>> 0;
+    return this.randomState / 4294967296;
+  }
+}
+
+----- src/footprints/pawStamp.ts -----
+import * as THREE from 'three';
+
+export interface PawStampOptions {
+  size: number;
+  edgeCollapse: number;
+  seed: number;
+  claw: number;
+}
+
+function fract(v: number): number {
+  return v - Math.floor(v);
+}
+
+function hash3(x: number, y: number, z: number): number {
+  return fract(Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453123);
+}
+
+function createCanvas(size: number): OffscreenCanvas | HTMLCanvasElement {
+  if (typeof OffscreenCanvas !== 'undefined') {
+    return new OffscreenCanvas(size, size);
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  return canvas;
+}
+
+function drawIrregularBlob(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+  rotation: number,
+  edgeCollapse: number,
+  seed: number,
+  points = 40
+): void {
+  const cosR = Math.cos(rotation);
+  const sinR = Math.sin(rotation);
+
+  ctx.beginPath();
+  for (let i = 0; i <= points; i += 1) {
+    const t = (i / points) * Math.PI * 2;
+    const bx = Math.cos(t);
+    const by = Math.sin(t);
+
+    const n1 = hash3(bx * 1.7 + seed, by * 1.7, seed + 0.13);
+    const n2 = hash3(bx * 3.3 + seed * 1.1, by * 3.3, seed + 0.47);
+    const irregular = 1.0 - edgeCollapse * 0.35 + (n1 * 2.0 - 1.0) * edgeCollapse * 0.32 + (n2 * 2.0 - 1.0) * edgeCollapse * 0.18;
+
+    const ex = bx * rx * irregular;
+    const ey = by * ry * irregular;
+
+    const px = cx + ex * cosR - ey * sinR;
+    const py = cy + ex * sinR + ey * cosR;
+
+    if (i === 0) {
+      ctx.moveTo(px, py);
+    } else {
+      ctx.lineTo(px, py);
+    }
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+export function generatePawStampTexture(opts: PawStampOptions): THREE.Texture {
+  const size = Math.max(32, Math.floor(opts.size));
+  const edgeCollapse = THREE.MathUtils.clamp(opts.edgeCollapse, 0, 1);
+  const claw = THREE.MathUtils.clamp(opts.claw, 0, 1);
+  const seed = opts.seed;
+
+  const canvas = createCanvas(size);
+  const ctx = canvas.getContext('2d');
+
+  if (!ctx) {
+    const fallback = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
+    fallback.needsUpdate = true;
+    return fallback;
+  }
+
+  ctx.clearRect(0, 0, size, size);
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, size, size);
+
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = '#ffffff';
+
+  const s = size;
+
+  const centralX = s * 0.5;
+  const centralY = s * 0.62;
+
+  drawIrregularBlob(ctx, centralX, centralY, s * 0.145, s * 0.132, 0.0, edgeCollapse, seed + 1.0, 48);
+  drawIrregularBlob(ctx, centralX - s * 0.065, centralY - s * 0.04, s * 0.075, s * 0.06, -0.22, edgeCollapse, seed + 2.0, 32);
+  drawIrregularBlob(ctx, centralX + s * 0.065, centralY - s * 0.04, s * 0.075, s * 0.06, 0.22, edgeCollapse, seed + 3.0, 32);
+  drawIrregularBlob(ctx, centralX, centralY + s * 0.052, s * 0.07, s * 0.072, 0.0, edgeCollapse, seed + 4.0, 30);
+
+  const toeFanY = s * 0.37;
+  const toeSpacing = s * 0.09;
+  const toeRot = [-0.34, -0.13, 0.13, 0.34];
+  const toeScale = [1.0, 0.95, 0.95, 1.0];
+
+  for (let i = 0; i < 4; i += 1) {
+    const tx = centralX + (i - 1.5) * toeSpacing;
+    const ty = toeFanY - Math.abs(i - 1.5) * s * 0.015;
+    const rx = s * 0.055 * toeScale[i];
+    const ry = s * 0.075 * toeScale[i];
+    drawIrregularBlob(ctx, tx, ty, rx, ry, toeRot[i], edgeCollapse, seed + 10.0 + i, 34);
+
+    if (claw > 0.01) {
+      const clawLen = s * (0.03 + claw * 0.02);
+      const clawW = s * 0.012;
+      const forward = -1.0;
+      const dirX = Math.sin(toeRot[i]) * forward;
+      const dirY = Math.cos(toeRot[i]) * forward;
+
+      const cx = tx + dirX * (ry + s * 0.015);
+      const cy = ty + dirY * (ry + s * 0.015);
+
+      drawIrregularBlob(
+        ctx,
+        cx,
+        cy,
+        clawW * (1.0 + 0.25 * claw),
+        clawLen * (0.8 + 0.2 * claw),
+        toeRot[i],
+        edgeCollapse * 0.35,
+        seed + 40.0 + i,
+        18
+      );
+    }
+  }
+
+  const img = ctx.getImageData(0, 0, size, size);
+  const data = img.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const x = (i / 4) % size;
+    const y = Math.floor(i / 4 / size);
+
+    const n = hash3(x * 0.083, y * 0.083, seed + 99.0);
+    const collapseNoise = 1.0 - edgeCollapse * 0.28 + (n * 2.0 - 1.0) * edgeCollapse * 0.22;
+
+    const v = data[i] / 255;
+    const shaped = Math.pow(v, 0.82) * collapseNoise;
+    const out = Math.round(THREE.MathUtils.clamp(shaped, 0, 1) * 255);
+
+    data[i] = out;
+    data[i + 1] = out;
+    data[i + 2] = out;
+    data[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const texture = new THREE.CanvasTexture(canvas as HTMLCanvasElement);
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
+  texture.needsUpdate = true;
+
+  return texture;
+}
+
+----- src/footprints/footprintTypes.ts -----
+import * as THREE from 'three';
+import { generatePawStampTexture, PawStampOptions } from './pawStamp';
+
+export interface FootprintType {
+  id: string;
+  aspect: number;
+  generateStampTexture: (opts: PawStampOptions) => THREE.Texture;
+}
+
+export const dogFootprint: FootprintType = {
+  id: 'dog',
+  aspect: 0.92,
+  generateStampTexture: (opts: PawStampOptions): THREE.Texture => generatePawStampTexture(opts)
+};
+
+----- src/main.ts -----
+import * as THREE from 'three';
+import './styles.css';
+
+import { createRenderer, RendererLike } from './scene/createRenderer';
+import { createCamera } from './scene/createCamera';
+import { createLights } from './scene/createLights';
+import { defaultSandParams, SandParams } from './sand/sandParams';
+import { SandPlane } from './sand/SandPlane';
+import { PointerTrail } from './interaction/PointerTrail';
+import { FootprintSystem } from './footprints/FootprintSystem';
+import { dogFootprint } from './footprints/footprintTypes';
+import { createGui } from './ui/createGui';
+import { WashWave } from './effects/WashWave';
+
+function isAsyncRenderer(
+  renderer: RendererLike
+): renderer is RendererLike & { renderAsync: (scene: THREE.Scene, camera: THREE.Camera) => Promise<void> } {
+  return typeof renderer.renderAsync === 'function';
+}
+
+async function boot(): Promise<void> {
+  const canvas = document.getElementById('app-canvas');
+  if (!(canvas instanceof HTMLCanvasElement)) {
+    throw new Error('Canvas #app-canvas not found');
+  }
+
+  const { renderer } = await createRenderer(canvas);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color('#9ec3df');
+
+  const cameraController = createCamera();
+  const { camera } = cameraController;
+
+  createLights(scene);
+
+  const sandParams: SandParams = { ...defaultSandParams };
+
+  const footprintWorldSize = cameraController.worldHeight() * 0.1;
+  const footprintSystem = new FootprintSystem(dogFootprint, sandParams, footprintWorldSize);
+
+  const sandPlane = new SandPlane(renderer, sandParams);
+  sandPlane.setFootprintSystem(footprintSystem);
+  scene.add(sandPlane.mesh);
+
+  const washWave = new WashWave(1.8);
+
+  const triggerWash = (): void => {
+    washWave.trigger();
+  };
+
+  createGui(sandParams, { onWash: triggerWash });
+
+  const pointerTrail = new PointerTrail();
+  pointerTrail.attach(renderer.domElement as HTMLElement, cameraController.screenToWorld);
+  pointerTrail.onMove((worldPos, dir) => {
+    footprintSystem.addAlongTrail(worldPos, dir);
+  });
+
+  const handleResize = (): void => {
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(width, height, false);
+    cameraController.resize(width, height);
+
+    footprintSystem.setFootprintWorldSize(cameraController.worldHeight() * 0.1);
+
+    const halfSweep = cameraController.worldHeight() * 0.5 + 0.9;
+    washWave.setSweepBounds(halfSweep, -halfSweep);
+  };
+
+  window.addEventListener('resize', handleResize, { passive: true });
+  handleResize();
+
+  const washButton = document.getElementById('wash-button');
+  if (washButton instanceof HTMLButtonElement) {
+    washButton.addEventListener('click', triggerWash);
+  }
+
+  let previousTime = performance.now();
+
+  const frame = (now: number): void => {
+    const dt = Math.max(0, (now - previousTime) * 0.001);
+    previousTime = now;
+
+    footprintSystem.update(now * 0.001);
+
+    const washWasActive = washWave.active;
+    if (washWasActive) {
+      washWave.update(dt);
+      sandPlane.setWash(washWave.front, washWave.progress);
+
+      if (!washWave.active) {
+        footprintSystem.clear();
+        sandPlane.clearFootprintContributions(sandParams);
+        sandPlane.resetWash();
+      }
+    }
+
+    sandPlane.update(dt, sandParams);
+
+    if (isAsyncRenderer(renderer)) {
+      void renderer.renderAsync(scene, camera);
+    } else {
+      renderer.render(scene, camera);
+    }
+
+    window.requestAnimationFrame(frame);
+  };
+
+  window.requestAnimationFrame(frame);
+}
+
+void boot();
+
+----- src/scene/createCamera.ts -----
+import * as THREE from 'three';
+
+export interface CameraController {
+  camera: THREE.OrthographicCamera;
+  resize: (width: number, height: number) => void;
+  worldHeight: () => number;
+  screenToWorld: (px: number, py: number) => THREE.Vector2;
+}
+
+export function createCamera(): CameraController {
+  const visibleWorldHeight = 12;
+  let viewportWidth = Math.max(1, window.innerWidth);
+  let viewportHeight = Math.max(1, window.innerHeight);
+
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 100);
+  camera.position.set(0, 20, 0);
+  camera.up.set(0, 0, -1);
+  camera.lookAt(0, 0, 0);
+
+  const ndc = new THREE.Vector3();
+  const rayOrigin = new THREE.Vector3();
+  const rayDirection = new THREE.Vector3();
+
+  const resize = (width: number, height: number): void => {
+    viewportWidth = Math.max(1, width);
+    viewportHeight = Math.max(1, height);
+
+    const aspect = viewportWidth / viewportHeight;
+    const halfHeight = visibleWorldHeight * 0.5;
+    const halfWidth = halfHeight * aspect;
+
+    camera.left = -halfWidth;
+    camera.right = halfWidth;
+    camera.top = halfHeight;
+    camera.bottom = -halfHeight;
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld(true);
+  };
+
+  const screenToWorld = (px: number, py: number): THREE.Vector2 => {
+    const x = (px / viewportWidth) * 2 - 1;
+    const y = -(py / viewportHeight) * 2 + 1;
+
+    ndc.set(x, y, 0);
+    rayOrigin.copy(ndc).unproject(camera);
+    camera.getWorldDirection(rayDirection);
+
+    const denom = rayDirection.y;
+    const t = Math.abs(denom) > 1e-6 ? -rayOrigin.y / denom : 0;
+
+    return new THREE.Vector2(rayOrigin.x + rayDirection.x * t, rayOrigin.z + rayDirection.z * t);
+  };
+
+  resize(viewportWidth, viewportHeight);
+
+  return {
+    camera,
+    resize,
+    worldHeight: () => visibleWorldHeight,
+    screenToWorld
+  };
+}
+
+----- src/interaction/PointerTrail.ts -----
+import * as THREE from 'three';
+
+export type ScreenToWorldFn = (px: number, py: number) => THREE.Vector2;
+export type PointerMoveCallback = (worldPos: THREE.Vector2, dir: THREE.Vector2) => void;
+
+const DEFAULT_SMOOTHING = 18.0;
+
+export class PointerTrail {
+  private readonly callbacks: PointerMoveCallback[] = [];
+
+  private dom: HTMLElement | null = null;
+  private screenToWorld: ScreenToWorldFn | null = null;
+
+  private activePointerId = -1;
+  private isActive = false;
+
+  private readonly currentPos = new THREE.Vector2();
+  private readonly previousPos = new THREE.Vector2();
+  private readonly rawDir = new THREE.Vector2();
+  private readonly smoothDir = new THREE.Vector2(0, 1);
+
+  private lastEventTimeMs = 0;
+
+  private readonly handlePointerDown = (event: PointerEvent): void => {
+    if (!this.screenToWorld || !this.dom) {
+      return;
+    }
+    if (this.isActive) {
+      return;
+    }
+
+    this.activePointerId = event.pointerId;
+    this.isActive = true;
+
+    const world = this.screenToWorld(event.clientX, event.clientY);
+    this.currentPos.copy(world);
+    this.previousPos.copy(world);
+    this.rawDir.set(0, 0);
+    this.smoothDir.set(0, 1);
+    this.lastEventTimeMs = event.timeStamp;
+
+    if (typeof this.dom.setPointerCapture === 'function') {
+      this.dom.setPointerCapture(event.pointerId);
+    }
+  };
+
+  private readonly handlePointerMove = (event: PointerEvent): void => {
+    if (!this.isActive || event.pointerId !== this.activePointerId || !this.screenToWorld) {
+      return;
+    }
+
+    const world = this.screenToWorld(event.clientX, event.clientY);
+    this.currentPos.copy(world);
+
+    this.rawDir.subVectors(this.currentPos, this.previousPos);
+    const lenSq = this.rawDir.lengthSq();
+    if (lenSq <= 1e-8) {
+      return;
+    }
+
+    this.rawDir.multiplyScalar(1.0 / Math.sqrt(lenSq));
+
+    const dt = Math.max(1e-4, (event.timeStamp - this.lastEventTimeMs) * 0.001);
+    this.lastEventTimeMs = event.timeStamp;
+    const alpha = 1.0 - Math.exp(-DEFAULT_SMOOTHING * dt);
+
+    this.smoothDir.lerp(this.rawDir, alpha);
+    const smoothLenSq = this.smoothDir.lengthSq();
+    if (smoothLenSq > 1e-8) {
+      this.smoothDir.multiplyScalar(1.0 / Math.sqrt(smoothLenSq));
+    } else {
+      this.smoothDir.copy(this.rawDir);
+    }
+
+    for (let i = 0; i < this.callbacks.length; i += 1) {
+      this.callbacks[i](this.currentPos, this.smoothDir);
+    }
+
+    this.previousPos.copy(this.currentPos);
+  };
+
+  private readonly handlePointerUp = (event: PointerEvent): void => {
+    if (!this.isActive || event.pointerId !== this.activePointerId || !this.dom) {
+      return;
+    }
+
+    if (typeof this.dom.releasePointerCapture === 'function') {
+      this.dom.releasePointerCapture(event.pointerId);
+    }
+
+    this.isActive = false;
+    this.activePointerId = -1;
+  };
+
+  onMove(cb: PointerMoveCallback): void {
+    this.callbacks.push(cb);
+  }
+
+  attach(dom: HTMLElement, screenToWorld: ScreenToWorldFn): void {
+    this.detach();
+    this.dom = dom;
+    this.screenToWorld = screenToWorld;
+
+    dom.addEventListener('pointerdown', this.handlePointerDown, { passive: true });
+    dom.addEventListener('pointermove', this.handlePointerMove, { passive: true });
+    dom.addEventListener('pointerup', this.handlePointerUp, { passive: true });
+    dom.addEventListener('pointercancel', this.handlePointerUp, { passive: true });
+    dom.addEventListener('pointerleave', this.handlePointerUp, { passive: true });
+  }
+
+  detach(): void {
+    if (!this.dom) {
+      return;
+    }
+
+    this.dom.removeEventListener('pointerdown', this.handlePointerDown);
+    this.dom.removeEventListener('pointermove', this.handlePointerMove);
+    this.dom.removeEventListener('pointerup', this.handlePointerUp);
+    this.dom.removeEventListener('pointercancel', this.handlePointerUp);
+    this.dom.removeEventListener('pointerleave', this.handlePointerUp);
+
+    this.dom = null;
+    this.screenToWorld = null;
+    this.isActive = false;
+    this.activePointerId = -1;
+  }
+}
+
+----- src/styles.css -----
+:root {
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  background: #1a1d22;
+}
+
+body {
+  position: fixed;
+  inset: 0;
+  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+}
+
+#app-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  touch-action: none;
+  outline: none;
+}
+
+#ui-overlay {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+#gui-container {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  left: max(12px, env(safe-area-inset-left));
+  z-index: 10;
+  pointer-events: auto;
+}
+
+#wash-button {
+  position: fixed;
+  left: 50%;
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 10;
+  pointer-events: auto;
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 24px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #f8fbff;
+  background: linear-gradient(180deg, #4ca7d8, #2a7fb4);
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+}
+
+#wash-button:active {
+  transform: translateX(-50%) scale(0.98);
+}

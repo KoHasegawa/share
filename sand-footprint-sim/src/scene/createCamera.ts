@@ -4,7 +4,7 @@ export interface CameraController {
   camera: THREE.OrthographicCamera;
   resize: (width: number, height: number) => void;
   worldHeight: () => number;
-  screenToWorld: (px: number, py: number) => THREE.Vector2;
+  screenToWorld: (px: number, py: number, target?: THREE.Vector2) => THREE.Vector2;
 }
 
 export function createCamera(): CameraController {
@@ -37,7 +37,9 @@ export function createCamera(): CameraController {
     camera.updateMatrixWorld(true);
   };
 
-  const screenToWorld = (px: number, py: number): THREE.Vector2 => {
+  const screenToWorld = (px: number, py: number, target?: THREE.Vector2): THREE.Vector2 => {
+    const out = target ?? new THREE.Vector2();
+
     const x = (px / viewportWidth) * 2 - 1;
     const y = -(py / viewportHeight) * 2 + 1;
 
@@ -48,7 +50,8 @@ export function createCamera(): CameraController {
     const denom = rayDirection.y;
     const t = Math.abs(denom) > 1e-6 ? -rayOrigin.y / denom : 0;
 
-    return new THREE.Vector2(rayOrigin.x + rayDirection.x * t, rayOrigin.z + rayDirection.z * t);
+    out.set(rayOrigin.x + rayDirection.x * t, rayOrigin.z + rayDirection.z * t);
+    return out;
   };
 
   resize(viewportWidth, viewportHeight);

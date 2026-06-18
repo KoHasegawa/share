@@ -1,3 +1,12 @@
+Fix two tsc errors in src/sand/SandPlane.ts (three 0.181). Output the full corrected file.
+  (27,44) TS2339: Property 'isWebGLRenderer' does not exist on type 'WebGLRenderer'.
+     -> @types/three doesn't declare isWebGLRenderer; detect via a safe cast, e.g.
+        ((renderer as unknown as { isWebGLRenderer?: boolean }).isWebGLRenderer === true).
+  (140,7) TS2322: Type 'TextureFilter' is not assignable to 'MagnificationTextureFilter'.
+     -> In the HeightTargetConfig type, type magFilter as THREE.MagnificationTextureFilter and
+        minFilter as THREE.MinificationTextureFilter (or THREE.TextureFilter for minFilter).
+Keep all runtime behavior (the iOS half-float capability fallback) intact.
+
 import * as THREE from 'three';
 import { RendererLike } from '../scene/createRenderer';
 import { FootprintSystem, MAX_FOOTPRINTS } from '../footprints/FootprintSystem';
@@ -11,8 +20,8 @@ interface ComposeRenderer {
 
 interface HeightTargetConfig {
   type: THREE.TextureDataType;
-  minFilter: THREE.MinificationTextureFilter;
-  magFilter: THREE.MagnificationTextureFilter;
+  minFilter: THREE.TextureFilter;
+  magFilter: THREE.TextureFilter;
   encodeScale: number;
   encodeBias: number;
   encoded: boolean;
@@ -24,7 +33,7 @@ function canCompose(renderer: RendererLike): renderer is RendererLike & ComposeR
 }
 
 function isWebGLRenderer(renderer: RendererLike): renderer is RendererLike & THREE.WebGLRenderer {
-  return ((renderer as unknown as { isWebGLRenderer?: boolean }).isWebGLRenderer === true);
+  return (renderer as THREE.WebGLRenderer).isWebGLRenderer === true;
 }
 
 function chooseHeightTargetConfig(renderer: RendererLike): HeightTargetConfig {

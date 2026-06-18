@@ -87,10 +87,10 @@ async function boot(): Promise<void> {
 
     footprintSystem.update(now * 0.001);
 
-    const washWasActive = washWave.active;
-    if (washWasActive) {
+    if (washWave.active) {
       washWave.update(dt);
       sandPlane.setWash(washWave.front, washWave.progress);
+      footprintSystem.clearPassedByWashFront(washWave.front);
 
       if (!washWave.active) {
         footprintSystem.clear();

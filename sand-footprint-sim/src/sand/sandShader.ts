@@ -22,7 +22,7 @@ export interface SandMaterialBundle {
   material: THREE.MeshStandardMaterial;
   uniforms: SandShaderUniforms;
   updateFromParams: (params: SandParams) => void;
-  setHeightTexture: (texture: THREE.Texture | null) => void;
+  setHeightTexture: (texture: THREE.Texture | null, decodeScale?: number, decodeBias?: number) => void;
 }
 
 function fract(v: number): number {
@@ -225,10 +225,12 @@ export function createSandMaterial(initialParams: SandParams): SandMaterialBundl
 
   const shaderHeightMap = new THREE.Uniform<THREE.Texture>(fallbackHeightTexture);
   const shaderHeightTexel = new THREE.Uniform(new THREE.Vector2(1, 1));
+  const shaderHeightDecode = new THREE.Uniform(new THREE.Vector2(1, 0));
 
   material.onBeforeCompile = (shader): void => {
     shader.uniforms.sandHeightMap = shaderHeightMap;
     shader.uniforms.sandHeightTexel = shaderHeightTexel;
+    shader.uniforms.sandHeightDecode = shaderHeightDecode;
     shader.uniforms.displacementScale = uniforms.displacementScale;
     shader.uniforms.darkeningStrength = uniforms.darkeningStrength;
     shader.uniforms.washFront = uniforms.washFront;
@@ -239,9 +241,15 @@ export function createSandMaterial(initialParams: SandParams): SandMaterialBundl
         '#include <common>',
         `#include <common>
 uniform sampler2D sandHeightMap;
+uniform vec2 sandHeightDecode;
 uniform float displacementScale;
 varying vec2 vSandUv;
-varying vec2 vSandWorld;`
+varying vec2 vSandWorld;
+
+float sampleSandHeight(vec2 uv) {
+  float encoded = texture2D(sandHeightMap, uv).r;
+  return (encoded - sandHeightDecode.y) * sandHeightDecode.x;
+}`
       )
       .replace(
         '#include <uv_vertex>',
@@ -251,7 +259,7 @@ vSandUv = uv;`
       .replace(
         '#include <begin_vertex>',
         `vec3 transformed = vec3( position );
-float sandHeight = texture2D( sandHeightMap, vSandUv ).r;
+float sandHeight = sampleSandHeight(vSandUv);
 transformed += objectNormal * (sandHeight * displacementScale);`
       )
       .replace(
@@ -266,6 +274,7 @@ vSandWorld = worldPosition.xz;`
         `#include <common>
 uniform sampler2D sandHeightMap;
 uniform vec2 sandHeightTexel;
+uniform vec2 sandHeightDecode;
 uniform float displacementScale;
 uniform float darkeningStrength;
 uniform float washFront;
@@ -275,49 +284,51 @@ varying vec2 vSandWorld;
 
 float hash12(vec2 p) {
   return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+}
+
+float sampleSandHeight(vec2 uv) {
+  float encoded = texture2D(sandHeightMap, uv).r;
+  return (encoded - sandHeightDecode.y) * sandHeightDecode.x;
 }`
       )
       .replace(
         '#include <normal_fragment_maps>',
         `#include <normal_fragment_maps>
-float hL = texture2D(sandHeightMap, vSandUv - vec2(sandHeightTexel.x, 0.0)).r;
-float hR = texture2D(sandHeightMap, vSandUv + vec2(sandHeightTexel.x, 0.0)).r;
-float hD = texture2D(sandHeightMap, vSandUv - vec2(0.0, sandHeightTexel.y)).r;
-float hU = texture2D(sandHeightMap, vSandUv + vec2(0.0, sandHeightTexel.y)).r;
-vec3 macroNormal = normalize(vec3((hL - hR) * displacementScale * 8.5, 1.0, (hD - hU) * displacementScale * 8.5));
-normal = normalize(mix(normal, macroNormal, 0.72));`
-      )
-      .replace(
-        '#include <roughnessmap_fragment>',
-        `#include <roughnessmap_fragment>
-float washEdge = smoothstep(washFront - 0.35, washFront + 0.35, vSandWorld.y) * clamp(washProgress * 1.35, 0.0, 1.0);
-float dryBack = smoothstep(0.45, 1.0, washProgress);
-float frontBand = 1.0 - smoothstep(0.02, 0.32, abs(vSandWorld.y - washFront));
-float wetFilm = clamp(washEdge * (1.0 - dryBack * 0.82) + frontBand * 0.72, 0.0, 1.0);
-roughnessFactor = mix(roughnessFactor, 0.22, wetFilm);`
+float hL = sampleSandHeight(vSandUv - vec2(sandHeightTexel.x, 0.0));
+float hR = sampleSandHeight(vSandUv + vec2(sandHeightTexel.x, 0.0));
+float hD = sampleSandHeight(vSandUv - vec2(0.0, sandHeightTexel.y));
+float hU = sampleSandHeight(vSandUv + vec2(0.0, sandHeightTexel.y));
+vec3 macroNormalObject = normalize(vec3((hL - hR) * displacementScale * 8.5, 1.0, (hU - hD) * displacementScale * 8.5));
+vec3 macroNormalView = normalize((modelViewMatrix * vec4(macroNormalObject, 0.0)).xyz);
+normal = normalize(mix(normal, macroNormalView, 0.72));`
       )
       .replace(
         '#include <map_fragment>',
         `#include <map_fragment>
-float washEdge = smoothstep(washFront - 0.35, washFront + 0.35, vSandWorld.y) * clamp(washProgress * 1.35, 0.0, 1.0);
-float dryBack = smoothstep(0.45, 1.0, washProgress);
-float frontBand = 1.0 - smoothstep(0.02, 0.32, abs(vSandWorld.y - washFront));
-float wetFilm = clamp(washEdge * (1.0 - dryBack * 0.82) + frontBand * 0.72, 0.0, 1.0);
+float sandWashEdge = smoothstep(washFront - 0.35, washFront + 0.35, vSandWorld.y) * clamp(washProgress * 1.35, 0.0, 1.0);
+float sandDryBack = smoothstep(0.45, 1.0, washProgress);
+float sandFrontBand = 1.0 - smoothstep(0.02, 0.32, abs(vSandWorld.y - washFront));
+float sandWetFilm = clamp(sandWashEdge * (1.0 - sandDryBack * 0.82) + sandFrontBand * 0.72, 0.0, 1.0);
 
 float footprintDark = texture2D(sandHeightMap, vSandUv).g;
-float remainingDark = footprintDark * (1.0 - washEdge);
+float remainingDark = footprintDark * (1.0 - sandWashEdge);
 diffuseColor.rgb *= (1.0 - darkeningStrength * clamp(remainingDark, 0.0, 1.0));
 
 float foamNoise = hash12(vSandWorld * 5.3 + vec2(washProgress * 33.7, washProgress * 17.9));
-float foam = frontBand * smoothstep(0.58, 0.9, foamNoise) * (1.0 - dryBack);
+float foam = sandFrontBand * smoothstep(0.58, 0.9, foamNoise) * (1.0 - sandDryBack);
 
 vec3 wetTint = vec3(0.88, 0.84, 0.76);
-diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * wetTint, wetFilm * 0.34);
+diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * wetTint, sandWetFilm * 0.34);
 diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.96, 0.97, 0.99), foam * 0.65);`
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+roughnessFactor = mix(roughnessFactor, 0.22, sandWetFilm);`
       );
   };
 
-  material.customProgramCacheKey = (): string => 'sand-heightfield-v2';
+  material.customProgramCacheKey = (): string => 'sand-heightfield-v3';
 
   const dryColor = new THREE.Color('#d5bf8d');
   const wetColor = new THREE.Color('#9f8a64');
@@ -346,20 +357,20 @@ diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.96, 0.97, 0.99), foam * 0.65);`
     material.normalScale.setScalar(normalStrength);
   };
 
-  const setHeightTexture = (texture: THREE.Texture | null): void => {
+  const setHeightTexture = (texture: THREE.Texture | null, decodeScale = 1, decodeBias = 0): void => {
     const target = texture ?? fallbackHeightTexture;
     shaderHeightMap.value = target;
+    shaderHeightDecode.value.set(decodeScale, decodeBias);
 
     let width = 1;
     let height = 1;
-    const image = (target as THREE.Texture).image as { width?: number; height?: number } | undefined;
+    const image = target.image as { width?: number; height?: number } | undefined;
     if (image && typeof image.width === 'number' && typeof image.height === 'number') {
       width = Math.max(1, image.width);
       height = Math.max(1, image.height);
     }
 
     shaderHeightTexel.value.set(1 / width, 1 / height);
-    material.needsUpdate = true;
   };
 
   material.userData.sandUniforms = uniforms;
