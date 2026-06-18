@@ -211,8 +211,76 @@ export function createSandMaterial(initialParams: SandParams): SandMaterialBundl
     noiseStrength: new THREE.Uniform(initialParams.noiseStrength),
     washFront: new THREE.Uniform(-1),
     washProgress: new THREE.Uniform(0),
-    displacementScale: new THREE.Uniform(initialParams.footprintDepth)
+    displacementScale: new THREE.Uniform(initialParams.footprintDepth * 0.45)
   };
+
+  const fallbackHeightData = new Float32Array([0, 0, 0, 1]);
+  const fallbackHeightTexture = new THREE.DataTexture(fallbackHeightData, 1, 1, THREE.RGBAFormat, THREE.FloatType);
+  fallbackHeightTexture.needsUpdate = true;
+  fallbackHeightTexture.minFilter = THREE.LinearFilter;
+  fallbackHeightTexture.magFilter = THREE.LinearFilter;
+  fallbackHeightTexture.wrapS = THREE.ClampToEdgeWrapping;
+  fallbackHeightTexture.wrapT = THREE.ClampToEdgeWrapping;
+  fallbackHeightTexture.generateMipmaps = false;
+
+  const shaderHeightMap = new THREE.Uniform<THREE.Texture>(fallbackHeightTexture);
+  const shaderHeightTexel = new THREE.Uniform(new THREE.Vector2(1, 1));
+
+  material.onBeforeCompile = (shader): void => {
+    shader.uniforms.sandHeightMap = shaderHeightMap;
+    shader.uniforms.sandHeightTexel = shaderHeightTexel;
+    shader.uniforms.displacementScale = uniforms.displacementScale;
+    shader.uniforms.darkeningStrength = uniforms.darkeningStrength;
+
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+uniform sampler2D sandHeightMap;
+uniform float displacementScale;
+varying vec2 vSandUv;`
+      )
+      .replace(
+        '#include <uv_vertex>',
+        `#include <uv_vertex>
+vSandUv = uv;`
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `vec3 transformed = vec3( position );
+float sandHeight = texture2D( sandHeightMap, vSandUv ).r;
+transformed += objectNormal * (sandHeight * displacementScale);`
+      );
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+uniform sampler2D sandHeightMap;
+uniform vec2 sandHeightTexel;
+uniform float displacementScale;
+uniform float darkeningStrength;
+varying vec2 vSandUv;`
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+float hL = texture2D(sandHeightMap, vSandUv - vec2(sandHeightTexel.x, 0.0)).r;
+float hR = texture2D(sandHeightMap, vSandUv + vec2(sandHeightTexel.x, 0.0)).r;
+float hD = texture2D(sandHeightMap, vSandUv - vec2(0.0, sandHeightTexel.y)).r;
+float hU = texture2D(sandHeightMap, vSandUv + vec2(0.0, sandHeightTexel.y)).r;
+vec3 macroNormal = normalize(vec3((hL - hR) * displacementScale * 8.5, 1.0, (hD - hU) * displacementScale * 8.5));
+normal = normalize(mix(normal, macroNormal, 0.72));`
+      )
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+float footprintDark = texture2D(sandHeightMap, vSandUv).g;
+diffuseColor.rgb *= (1.0 - darkeningStrength * clamp(footprintDark, 0.0, 1.0));`
+      );
+  };
+
+  material.customProgramCacheKey = (): string => 'sand-heightfield-v1';
 
   const dryColor = new THREE.Color('#d5bf8d');
   const wetColor = new THREE.Color('#9f8a64');
@@ -229,7 +297,7 @@ export function createSandMaterial(initialParams: SandParams): SandMaterialBundl
     uniforms.decaySpeed.value = params.decaySpeed;
     uniforms.darkeningStrength.value = params.darkeningStrength;
     uniforms.noiseStrength.value = params.noiseStrength;
-    uniforms.displacementScale.value = params.footprintDepth;
+    uniforms.displacementScale.value = params.footprintDepth * 0.45;
 
     const moisture = THREE.MathUtils.clamp(params.moisture, 0, 1);
     material.color.copy(dryColor).lerp(wetColor, moisture * 0.9);
@@ -242,8 +310,18 @@ export function createSandMaterial(initialParams: SandParams): SandMaterialBundl
   };
 
   const setHeightTexture = (texture: THREE.Texture | null): void => {
-    material.displacementMap = texture;
-    material.displacementScale = uniforms.displacementScale.value;
+    const target = texture ?? fallbackHeightTexture;
+    shaderHeightMap.value = target;
+
+    let width = 1;
+    let height = 1;
+    const image = (target as THREE.Texture).image as { width?: number; height?: number } | undefined;
+    if (image && typeof image.width === 'number' && typeof image.height === 'number') {
+      width = Math.max(1, image.width);
+      height = Math.max(1, image.height);
+    }
+
+    shaderHeightTexel.value.set(1 / width, 1 / height);
     material.needsUpdate = true;
   };
 

@@ -6,6 +6,9 @@ import { createCamera } from './scene/createCamera';
 import { createLights } from './scene/createLights';
 import { defaultSandParams, SandParams } from './sand/sandParams';
 import { SandPlane } from './sand/SandPlane';
+import { PointerTrail } from './interaction/PointerTrail';
+import { FootprintSystem } from './footprints/FootprintSystem';
+import { dogFootprint } from './footprints/footprintTypes';
 
 function isAsyncRenderer(
   renderer: RendererLike
@@ -30,8 +33,19 @@ async function boot(): Promise<void> {
   createLights(scene);
 
   const sandParams: SandParams = { ...defaultSandParams };
-  const sandPlane = new SandPlane(sandParams);
+
+  const footprintWorldSize = cameraController.worldHeight() * 0.1;
+  const footprintSystem = new FootprintSystem(dogFootprint, sandParams, footprintWorldSize);
+
+  const sandPlane = new SandPlane(renderer, sandParams);
+  sandPlane.setFootprintSystem(footprintSystem);
   scene.add(sandPlane.mesh);
+
+  const pointerTrail = new PointerTrail();
+  pointerTrail.attach(renderer.domElement as HTMLElement, cameraController.screenToWorld);
+  pointerTrail.onMove((worldPos, dir) => {
+    footprintSystem.addAlongTrail(worldPos, dir);
+  });
 
   const handleResize = (): void => {
     const width = window.innerWidth;
@@ -40,6 +54,8 @@ async function boot(): Promise<void> {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(width, height, false);
     cameraController.resize(width, height);
+
+    footprintSystem.setFootprintWorldSize(cameraController.worldHeight() * 0.1);
   };
 
   window.addEventListener('resize', handleResize, { passive: true });
@@ -58,6 +74,7 @@ async function boot(): Promise<void> {
     const dt = Math.max(0, (now - previousTime) * 0.001);
     previousTime = now;
 
+    footprintSystem.update(now * 0.001);
     sandPlane.update(dt, sandParams);
 
     if (isAsyncRenderer(renderer)) {

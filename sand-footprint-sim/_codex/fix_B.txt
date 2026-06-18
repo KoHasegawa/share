@@ -1,3 +1,11 @@
+Fix ONE tsc error (three 0.181):
+  SandPlane.ts(13,18): TS2352 Conversion of type 'RendererLike' to type 'ComposeRenderer' may be a mistake...
+Line 13 is the canCompose type-guard predicate using 'renderer as ComposeRenderer'. The cast is rejected
+because RendererLike and ComposeRenderer don't sufficiently overlap. Use a safe cast (cast through
+'unknown', or restructure the guard) so it typechecks, while keeping the runtime guard behavior.
+RendererLike does NOT declare setRenderTarget; that's why the guard exists (WebGLRenderer has it,
+WebGPURenderer composing differs). Output the FULL corrected src/sand/SandPlane.ts.
+
 import * as THREE from 'three';
 import { RendererLike } from '../scene/createRenderer';
 import { FootprintSystem, MAX_FOOTPRINTS } from '../footprints/FootprintSystem';
@@ -10,8 +18,7 @@ interface ComposeRenderer {
 }
 
 function canCompose(renderer: RendererLike): renderer is RendererLike & ComposeRenderer {
-  const candidate = renderer as unknown as Partial<ComposeRenderer>;
-  return typeof candidate.setRenderTarget === 'function' && typeof candidate.render === 'function';
+  return typeof (renderer as ComposeRenderer).setRenderTarget === 'function' && typeof renderer.render === 'function';
 }
 
 export class SandPlane {
