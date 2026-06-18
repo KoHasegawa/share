@@ -37,6 +37,13 @@ export class SandPlane {
   private readonly stampA: THREE.Vector4[] = new Array<THREE.Vector4>(MAX_FOOTPRINTS);
   private readonly stampB: THREE.Vector4[] = new Array<THREE.Vector4>(MAX_FOOTPRINTS);
 
+  private composeDirty = true;
+  private lastRimHeight = Number.NaN;
+  private lastCohesion = Number.NaN;
+  private lastEdgeCollapse = Number.NaN;
+  private lastBodyWeight = Number.NaN;
+  private lastFootDepth = Number.NaN;
+
   constructor(renderer: RendererLike, initialParams: SandParams, size = 40, segments = 256) {
     this.renderer = renderer;
     this.planeSize = size;
@@ -166,26 +173,48 @@ void main() {
     this.composeScene.add(this.composeQuad);
 
     this.applyFootprints(this.heightTarget.texture);
+    this.resetWash();
     this.rebuildHeightField(initialParams);
   }
 
   setFootprintSystem(system: FootprintSystem): void {
     this.footprintSystem = system;
     this.lastFootprintRevision = -1;
+    this.composeDirty = true;
   }
 
   update(_dt: number, params: SandParams): void {
     this.materialBundle.updateFromParams(params);
 
-    this.composeMaterial.uniforms.uRimHeight.value = params.rimHeight * 0.7;
+    const rim = params.rimHeight * 0.7;
+    this.composeMaterial.uniforms.uRimHeight.value = rim;
     this.composeMaterial.uniforms.uCohesion.value = params.cohesion;
     this.composeMaterial.uniforms.uEdgeCollapse.value = params.edgeCollapse;
     this.composeMaterial.uniforms.uBodyWeight.value = params.bodyWeight;
     this.composeMaterial.uniforms.uFootDepth.value = params.footprintDepth;
 
-    if (this.footprintSystem && this.footprintSystem.revision !== this.lastFootprintRevision) {
+    if (
+      rim !== this.lastRimHeight ||
+      params.cohesion !== this.lastCohesion ||
+      params.edgeCollapse !== this.lastEdgeCollapse ||
+      params.bodyWeight !== this.lastBodyWeight ||
+      params.footprintDepth !== this.lastFootDepth
+    ) {
+      this.lastRimHeight = rim;
+      this.lastCohesion = params.cohesion;
+      this.lastEdgeCollapse = params.edgeCollapse;
+      this.lastBodyWeight = params.bodyWeight;
+      this.lastFootDepth = params.footprintDepth;
+      this.composeDirty = true;
+    }
+
+    const revisionChanged = this.footprintSystem && this.footprintSystem.revision !== this.lastFootprintRevision;
+    if (revisionChanged || this.composeDirty) {
       this.rebuildHeightField(params);
-      this.lastFootprintRevision = this.footprintSystem.revision;
+      if (this.footprintSystem) {
+        this.lastFootprintRevision = this.footprintSystem.revision;
+      }
+      this.composeDirty = false;
     }
   }
 
@@ -195,7 +224,27 @@ void main() {
   }
 
   applyWash(front: number): void {
+    this.setWash(front, this.materialBundle.uniforms.washProgress.value);
+  }
+
+  setWash(front: number, progress: number): void {
     this.materialBundle.uniforms.washFront.value = front;
+    this.materialBundle.uniforms.washProgress.value = progress;
+  }
+
+  resetWash(): void {
+    this.materialBundle.uniforms.washFront.value = 1e6;
+    this.materialBundle.uniforms.washProgress.value = 0;
+  }
+
+  clearFootprintContributions(params: SandParams): void {
+    this.lastFootprintRevision = -1;
+    this.composeDirty = true;
+    this.rebuildHeightField(params);
+    if (this.footprintSystem) {
+      this.lastFootprintRevision = this.footprintSystem.revision;
+    }
+    this.composeDirty = false;
   }
 
   dispose(): void {

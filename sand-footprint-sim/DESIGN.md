@@ -34,7 +34,9 @@
 | フレームワーク | React 不使用（バニラ TS + DOM） |
 | 対象端末 | iPhone Safari を主ターゲット、目標 30FPS 前後 |
 
-### 2.1 WebGPU / WebGL2 フォールバック方針
+> **【実装決定 2026-06-18】**: 初期実装は **WebGL2 専用（`WebGLRenderer` 固定）** とする。理由は (1) iPhone Safari の WebGPU が現状不安定、(2) 砂シェーダーを `MeshStandardMaterial + onBeforeCompile`(GLSL) で実装したため WebGPU では効かない、(3) 実ターゲット端末で確実に正しく描画することを優先。将来 TSL 化すれば本節の WebGPU 優先方針へ戻せる構造は維持する。
+
+### 2.1 WebGPU / WebGL2 フォールバック方針（将来方針・現状未使用）
 - 起動時に `navigator.gpu` の有無と `WebGPURenderer` の初期化成否を判定。
 - 成功すれば WebGPU、失敗・非対応なら WebGL2 (`WebGLRenderer`) を使用。
 - **シェーダー記述の二重化を避けるため、Three.js の TSL（Three Shading Language / node materials）を第一候補とする。** TSL は WebGPU/WebGL2 双方に同一記述からコンパイルされるため、フォールバックでもシェーダーを書き直す必要がない。

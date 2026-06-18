@@ -209,7 +209,7 @@ export function createSandMaterial(initialParams: SandParams): SandMaterialBundl
     decaySpeed: new THREE.Uniform(initialParams.decaySpeed),
     darkeningStrength: new THREE.Uniform(initialParams.darkeningStrength),
     noiseStrength: new THREE.Uniform(initialParams.noiseStrength),
-    washFront: new THREE.Uniform(-1),
+    washFront: new THREE.Uniform(1e6),
     washProgress: new THREE.Uniform(0),
     displacementScale: new THREE.Uniform(initialParams.footprintDepth * 0.45)
   };
@@ -231,6 +231,8 @@ export function createSandMaterial(initialParams: SandParams): SandMaterialBundl
     shader.uniforms.sandHeightTexel = shaderHeightTexel;
     shader.uniforms.displacementScale = uniforms.displacementScale;
     shader.uniforms.darkeningStrength = uniforms.darkeningStrength;
+    shader.uniforms.washFront = uniforms.washFront;
+    shader.uniforms.washProgress = uniforms.washProgress;
 
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -238,7 +240,8 @@ export function createSandMaterial(initialParams: SandParams): SandMaterialBundl
         `#include <common>
 uniform sampler2D sandHeightMap;
 uniform float displacementScale;
-varying vec2 vSandUv;`
+varying vec2 vSandUv;
+varying vec2 vSandWorld;`
       )
       .replace(
         '#include <uv_vertex>',
@@ -250,6 +253,11 @@ vSandUv = uv;`
         `vec3 transformed = vec3( position );
 float sandHeight = texture2D( sandHeightMap, vSandUv ).r;
 transformed += objectNormal * (sandHeight * displacementScale);`
+      )
+      .replace(
+        '#include <worldpos_vertex>',
+        `#include <worldpos_vertex>
+vSandWorld = worldPosition.xz;`
       );
 
     shader.fragmentShader = shader.fragmentShader
@@ -260,7 +268,14 @@ uniform sampler2D sandHeightMap;
 uniform vec2 sandHeightTexel;
 uniform float displacementScale;
 uniform float darkeningStrength;
-varying vec2 vSandUv;`
+uniform float washFront;
+uniform float washProgress;
+varying vec2 vSandUv;
+varying vec2 vSandWorld;
+
+float hash12(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+}`
       )
       .replace(
         '#include <normal_fragment_maps>',
@@ -273,14 +288,36 @@ vec3 macroNormal = normalize(vec3((hL - hR) * displacementScale * 8.5, 1.0, (hD 
 normal = normalize(mix(normal, macroNormal, 0.72));`
       )
       .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+float washEdge = smoothstep(washFront - 0.35, washFront + 0.35, vSandWorld.y) * clamp(washProgress * 1.35, 0.0, 1.0);
+float dryBack = smoothstep(0.45, 1.0, washProgress);
+float frontBand = 1.0 - smoothstep(0.02, 0.32, abs(vSandWorld.y - washFront));
+float wetFilm = clamp(washEdge * (1.0 - dryBack * 0.82) + frontBand * 0.72, 0.0, 1.0);
+roughnessFactor = mix(roughnessFactor, 0.22, wetFilm);`
+      )
+      .replace(
         '#include <map_fragment>',
         `#include <map_fragment>
+float washEdge = smoothstep(washFront - 0.35, washFront + 0.35, vSandWorld.y) * clamp(washProgress * 1.35, 0.0, 1.0);
+float dryBack = smoothstep(0.45, 1.0, washProgress);
+float frontBand = 1.0 - smoothstep(0.02, 0.32, abs(vSandWorld.y - washFront));
+float wetFilm = clamp(washEdge * (1.0 - dryBack * 0.82) + frontBand * 0.72, 0.0, 1.0);
+
 float footprintDark = texture2D(sandHeightMap, vSandUv).g;
-diffuseColor.rgb *= (1.0 - darkeningStrength * clamp(footprintDark, 0.0, 1.0));`
+float remainingDark = footprintDark * (1.0 - washEdge);
+diffuseColor.rgb *= (1.0 - darkeningStrength * clamp(remainingDark, 0.0, 1.0));
+
+float foamNoise = hash12(vSandWorld * 5.3 + vec2(washProgress * 33.7, washProgress * 17.9));
+float foam = frontBand * smoothstep(0.58, 0.9, foamNoise) * (1.0 - dryBack);
+
+vec3 wetTint = vec3(0.88, 0.84, 0.76);
+diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * wetTint, wetFilm * 0.34);
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.96, 0.97, 0.99), foam * 0.65);`
       );
   };
 
-  material.customProgramCacheKey = (): string => 'sand-heightfield-v1';
+  material.customProgramCacheKey = (): string => 'sand-heightfield-v2';
 
   const dryColor = new THREE.Color('#d5bf8d');
   const wetColor = new THREE.Color('#9f8a64');

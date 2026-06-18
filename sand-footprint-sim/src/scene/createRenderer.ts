@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export type RendererBackend = 'webgpu' | 'webgl2';
+export type RendererBackend = 'webgl2';
 
 export interface RendererLike {
   domElement: HTMLCanvasElement;
@@ -18,77 +18,36 @@ export interface RendererLike {
   };
 }
 
-interface WebGPURendererCtor {
-  new (parameters: { canvas: HTMLCanvasElement; antialias?: boolean; alpha?: boolean }): RendererLike & {
-    init?: () => Promise<void> | void;
-  };
-}
-
 export async function createRenderer(
   canvas: HTMLCanvasElement
-): Promise<{ renderer: RendererLike; backend: RendererBackend }> {
+): Promise<{ renderer: RendererLike; backend: 'webgl2' }> {
   const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
 
-  try {
-    if (!('gpu' in navigator)) {
-      throw new Error('navigator.gpu is not available');
-    }
+  const webgl2Context = canvas.getContext('webgl2', {
+    antialias: true,
+    alpha: false,
+    powerPreference: 'high-performance'
+  });
 
-    const webgpuModuleUnknown: unknown = await import('three/webgpu');
-    const webgpuModule = webgpuModuleUnknown as {
-      WebGPURenderer?: WebGPURendererCtor;
-      default?: WebGPURendererCtor;
-    };
-
-    const maybeCtor = webgpuModule.WebGPURenderer ?? webgpuModule.default;
-
-    if (!maybeCtor) {
-      throw new Error('WebGPURenderer export not found');
-    }
-
-    const renderer = new maybeCtor({
-      canvas,
-      antialias: true,
-      alpha: false
-    });
-
-    if (typeof renderer.init === 'function') {
-      await renderer.init();
-    }
-
-    renderer.setPixelRatio(pixelRatio);
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.0;
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-
-    console.info('[Renderer] backend: webgpu');
-    return { renderer, backend: 'webgpu' };
-  } catch (error) {
-    const webgl2Context = canvas.getContext('webgl2', {
-      antialias: true,
-      alpha: false,
-      powerPreference: 'high-performance'
-    });
-
-    if (!webgl2Context) {
-      throw new Error(`Failed to create WebGPU and WebGL2 renderers. Cause: ${String(error)}`);
-    }
-
-    const renderer = new THREE.WebGLRenderer({
-      canvas,
-      context: webgl2Context,
-      antialias: true,
-      alpha: false
-    });
-
-    renderer.setPixelRatio(pixelRatio);
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.0;
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-    console.info('[Renderer] backend: webgl2');
-    return { renderer, backend: 'webgl2' };
+  if (!webgl2Context) {
+    throw new Error('Failed to create WebGL2 renderer context.');
   }
+
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    context: webgl2Context,
+    antialias: true,
+    alpha: false,
+    powerPreference: 'high-performance'
+  });
+
+  renderer.setPixelRatio(pixelRatio);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+  console.info('[Renderer] backend: webgl2');
+  return { renderer, backend: 'webgl2' };
 }

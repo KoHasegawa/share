@@ -9,6 +9,8 @@ import { SandPlane } from './sand/SandPlane';
 import { PointerTrail } from './interaction/PointerTrail';
 import { FootprintSystem } from './footprints/FootprintSystem';
 import { dogFootprint } from './footprints/footprintTypes';
+import { createGui } from './ui/createGui';
+import { WashWave } from './effects/WashWave';
 
 function isAsyncRenderer(
   renderer: RendererLike
@@ -41,6 +43,14 @@ async function boot(): Promise<void> {
   sandPlane.setFootprintSystem(footprintSystem);
   scene.add(sandPlane.mesh);
 
+  const washWave = new WashWave(1.8);
+
+  const triggerWash = (): void => {
+    washWave.trigger();
+  };
+
+  createGui(sandParams, { onWash: triggerWash });
+
   const pointerTrail = new PointerTrail();
   pointerTrail.attach(renderer.domElement as HTMLElement, cameraController.screenToWorld);
   pointerTrail.onMove((worldPos, dir) => {
@@ -56,6 +66,9 @@ async function boot(): Promise<void> {
     cameraController.resize(width, height);
 
     footprintSystem.setFootprintWorldSize(cameraController.worldHeight() * 0.1);
+
+    const halfSweep = cameraController.worldHeight() * 0.5 + 0.9;
+    washWave.setSweepBounds(halfSweep, -halfSweep);
   };
 
   window.addEventListener('resize', handleResize, { passive: true });
@@ -63,9 +76,7 @@ async function boot(): Promise<void> {
 
   const washButton = document.getElementById('wash-button');
   if (washButton instanceof HTMLButtonElement) {
-    washButton.addEventListener('click', () => {
-      // Placeholder for Batch M7.
-    });
+    washButton.addEventListener('click', triggerWash);
   }
 
   let previousTime = performance.now();
@@ -75,6 +86,19 @@ async function boot(): Promise<void> {
     previousTime = now;
 
     footprintSystem.update(now * 0.001);
+
+    const washWasActive = washWave.active;
+    if (washWasActive) {
+      washWave.update(dt);
+      sandPlane.setWash(washWave.front, washWave.progress);
+
+      if (!washWave.active) {
+        footprintSystem.clear();
+        sandPlane.clearFootprintContributions(sandParams);
+        sandPlane.resetWash();
+      }
+    }
+
     sandPlane.update(dt, sandParams);
 
     if (isAsyncRenderer(renderer)) {
