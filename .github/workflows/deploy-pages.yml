@@ -27,10 +27,24 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: sand-footprint-sim/package-lock.json
+
+      - name: Build sand-footprint-sim (Vite)
+        run: |
+          cd sand-footprint-sim
+          npm ci
+          npm run build
+
       - name: Assemble deploy directory
         run: |
           mkdir -p _deploy
           cp index.html _deploy/
+          cp -r sand-footprint-sim/dist _deploy/sand-footprint-sim
           cp -r game _deploy/game
           cp -r game-v2 _deploy/game-v2
           cp -r game-v3 _deploy/game-v3
