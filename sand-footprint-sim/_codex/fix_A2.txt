@@ -1,0 +1,101 @@
+Fix the remaining tsc error in src/scene/createRenderer.ts (three 0.181):
+  createRenderer.ts(92,14): error TS2322: Type 'WebGLRenderer' is not assignable to type 'RendererLike'.
+  Types of property 'outputColorSpace' are incompatible. Type 'string' is not assignable to type 'ColorSpace'.
+In three 0.181, WebGLRenderer.outputColorSpace is typed as string, so the RendererLike interface field
+outputColorSpace: THREE.ColorSpace is too narrow. Widen it appropriately (e.g. string) so both
+WebGLRenderer and WebGPURenderer satisfy RendererLike. Output the full corrected file.
+
+import * as THREE from 'three';
+
+export type RendererBackend = 'webgpu' | 'webgl2';
+
+export interface RendererLike {
+  domElement: HTMLCanvasElement;
+  setSize(width: number, height: number, updateStyle?: boolean): void;
+  setPixelRatio(value: number): void;
+  render(scene: THREE.Object3D, camera: THREE.Camera): void;
+  renderAsync?: (scene: THREE.Object3D, camera: THREE.Camera) => Promise<void>;
+  dispose(): void;
+  toneMapping: THREE.ToneMapping;
+  toneMappingExposure: number;
+  outputColorSpace: THREE.ColorSpace;
+  shadowMap?: {
+    enabled: boolean;
+    type: THREE.ShadowMapType;
+  };
+}
+
+interface WebGPURendererCtor {
+  new (parameters: { canvas: HTMLCanvasElement; antialias?: boolean; alpha?: boolean }): RendererLike & {
+    init?: () => Promise<void> | void;
+  };
+}
+
+export async function createRenderer(
+  canvas: HTMLCanvasElement
+): Promise<{ renderer: RendererLike; backend: RendererBackend }> {
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+
+  try {
+    if (!('gpu' in navigator)) {
+      throw new Error('navigator.gpu is not available');
+    }
+
+    const webgpuModuleUnknown: unknown = await import('three/webgpu');
+    const webgpuModule = webgpuModuleUnknown as {
+      WebGPURenderer?: WebGPURendererCtor;
+      default?: WebGPURendererCtor;
+    };
+
+    const maybeCtor = webgpuModule.WebGPURenderer ?? webgpuModule.default;
+
+    if (!maybeCtor) {
+      throw new Error('WebGPURenderer export not found');
+    }
+
+    const renderer = new maybeCtor({
+      canvas,
+      antialias: true,
+      alpha: false
+    });
+
+    if (typeof renderer.init === 'function') {
+      await renderer.init();
+    }
+
+    renderer.setPixelRatio(pixelRatio);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    console.info('[Renderer] backend: webgpu');
+    return { renderer, backend: 'webgpu' };
+  } catch (error) {
+    const webgl2Context = canvas.getContext('webgl2', {
+      antialias: true,
+      alpha: false,
+      powerPreference: 'high-performance'
+    });
+
+    if (!webgl2Context) {
+      throw new Error(`Failed to create WebGPU and WebGL2 renderers. Cause: ${String(error)}`);
+    }
+
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      context: webgl2Context,
+      antialias: true,
+      alpha: false
+    });
+
+    renderer.setPixelRatio(pixelRatio);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.0;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    console.info('[Renderer] backend: webgl2');
+    return { renderer, backend: 'webgl2' };
+  }
+}
