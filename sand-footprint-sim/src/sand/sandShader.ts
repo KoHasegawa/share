@@ -291,6 +291,7 @@ vSandWorld = worldPosition.xz;`
       .replace(
         '#include <common>',
         `#include <common>
+uniform mat4 modelViewMatrix;
 uniform sampler2D sandHeightMap;
 uniform vec2 sandHeightTexel;
 uniform vec2 sandHeightDecode;
@@ -438,7 +439,7 @@ roughnessFactor = clamp(roughnessFactor, 0.16, 0.96);`
       );
   };
 
-  material.customProgramCacheKey = (): string => 'sand-heightfield-v4-visual-polish';
+  material.customProgramCacheKey = (): string => 'sand-heightfield-v5-fragment-mvmatrix-fix';
 
   const dryColor = new THREE.Color('#f1ddb4');
   const wetColor = new THREE.Color('#b9a17a');
