@@ -6,16 +6,23 @@ import { createCamera } from './scene/createCamera';
 import { createLights } from './scene/createLights';
 import { defaultSandParams, SandParams } from './sand/sandParams';
 import { SandPlane } from './sand/SandPlane';
-import { PointerTrail } from './interaction/PointerTrail';
 import { FootprintSystem } from './footprints/FootprintSystem';
 import { dogFootprint } from './footprints/footprintTypes';
 import { createGui } from './ui/createGui';
 import { WashWave } from './effects/WashWave';
+import { DogManager } from './agents/DogManager';
+import { TargetManager } from './agents/TargetManager';
 
 function isAsyncRenderer(
   renderer: RendererLike
 ): renderer is RendererLike & { renderAsync: (scene: THREE.Scene, camera: THREE.Camera) => Promise<void> } {
   return typeof renderer.renderAsync === 'function';
+}
+
+function worldHalfWidth(worldHeight: number): number {
+  const width = Math.max(1, window.innerWidth);
+  const height = Math.max(1, window.innerHeight);
+  return worldHeight * (width / height) * 0.5;
 }
 
 async function boot(): Promise<void> {
@@ -27,7 +34,7 @@ async function boot(): Promise<void> {
   const { renderer } = await createRenderer(canvas);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color('#9ec3df');
+  scene.background = new THREE.Color('#9eb9c8');
 
   const cameraController = createCamera();
   const { camera } = cameraController;
@@ -43,6 +50,21 @@ async function boot(): Promise<void> {
   sandPlane.setFootprintSystem(footprintSystem);
   scene.add(sandPlane.mesh);
 
+  const initialWorldHalfHeight = cameraController.worldHeight() * 0.5;
+  const dogManager = new DogManager(
+    sandParams,
+    footprintSystem,
+    worldHalfWidth(cameraController.worldHeight()),
+    initialWorldHalfHeight
+  );
+  const dogMeshes = dogManager.getMeshes();
+  for (let i = 0; i < dogMeshes.length; i += 1) {
+    scene.add(dogMeshes[i]);
+  }
+
+  const targetManager = new TargetManager(sandParams);
+  scene.add(targetManager.getMesh());
+
   const washWave = new WashWave(1.8);
 
   const triggerWash = (): void => {
@@ -51,14 +73,17 @@ async function boot(): Promise<void> {
 
   createGui(sandParams, { onWash: triggerWash });
 
-  const pointerTrail = new PointerTrail();
-  pointerTrail.attach(renderer.domElement as HTMLElement, cameraController.screenToWorld);
-  pointerTrail.onStart(() => {
-    footprintSystem.resetTrail();
-  });
-  pointerTrail.onMove((worldPos, dir) => {
-    footprintSystem.addAlongTrail(worldPos, dir);
-  });
+  const tapWorld = new THREE.Vector2();
+  const handlePointerDown = (event: PointerEvent): void => {
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+      return;
+    }
+
+    cameraController.screenToWorld(event.clientX, event.clientY, tapWorld);
+    targetManager.setTarget(tapWorld);
+  };
+
+  canvas.addEventListener('pointerdown', handlePointerDown);
 
   const handleResize = (): void => {
     const width = window.innerWidth;
@@ -69,6 +94,9 @@ async function boot(): Promise<void> {
     cameraController.resize(width, height);
 
     footprintSystem.setFootprintWorldSize(cameraController.worldHeight() * 0.2);
+
+    const halfHeight = cameraController.worldHeight() * 0.5;
+    dogManager.setBounds(worldHalfWidth(cameraController.worldHeight()), halfHeight);
 
     const halfSweep = cameraController.worldHeight() * 0.5 + 0.9;
     washWave.setSweepBounds(halfSweep, -halfSweep);
@@ -87,6 +115,9 @@ async function boot(): Promise<void> {
   const frame = (now: number): void => {
     const dt = Math.max(0, (now - previousTime) * 0.001);
     previousTime = now;
+
+    dogManager.update(dt, targetManager.getTarget());
+    targetManager.update(dt, dogManager.getPositions());
 
     footprintSystem.update(now * 0.001);
 

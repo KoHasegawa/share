@@ -3,19 +3,7 @@ import { SandParams } from '../sand/sandParams';
 import { FootprintType } from './footprintTypes';
 import { PawStampAtlas } from './pawStamp';
 
-export const MAX_FOOTPRINTS = 15;
-
-// How long a fresh print takes to fully "press" into the sand.
-const APPEAR_DURATION = 0.18;
-
-// Dog walk diagonal footfall sequence.
-// lane: -1=left track, +1=right track / fore: front foot or hind foot
-const GAIT: ReadonlyArray<{ lane: -1 | 1; fore: boolean }> = [
-  { lane: -1, fore: true }, // Front-Left
-  { lane: 1, fore: false }, // Hind-Right
-  { lane: 1, fore: true }, // Front-Right
-  { lane: -1, fore: false } // Hind-Left
-];
+export const MAX_FOOTPRINTS = 100;
 
 // Ease-out-back: rises past 1.0 then settles, giving the print a small
 // stamping "pop" as it pushes into the sand.
@@ -24,6 +12,14 @@ function easeOutBack(t: number): number {
   const c3 = c1 + 1;
   const p = t - 1;
   return 1 + c3 * p * p * p + c1 * p * p;
+}
+
+export interface AddFootprintOptions {
+  foreScale: number;
+  weight: number;
+  aspect: number;
+  side: -1 | 1;
+  seed: number;
 }
 
 export interface Footprint {
@@ -39,6 +35,7 @@ export interface Footprint {
   depthScale: number;
   weight: number;
   aspect: number;
+  decayBias: number;
 }
 
 export interface FootprintCompositeData {
@@ -66,25 +63,7 @@ export class FootprintSystem {
   private readonly quantizedDepth = new Uint8Array(MAX_FOOTPRINTS);
 
   private writeIndex = 0;
-  private gaitIndex = 0;
-
-  private stride: number;
-  private trackHalf = 0;
-  private foreLong = 0;
-  private hindLong = 0;
   private baseScale: number;
-  private nextStride = 0;
-  private swayOffset = 0;
-
-  private trailInitialized = false;
-  private readonly trailLastPos = new THREE.Vector2();
-  private trailDistanceSinceSpawn = 0;
-
-  private readonly spawnPos = new THREE.Vector2();
-  private readonly spawnDir = new THREE.Vector2();
-  private readonly perp = new THREE.Vector2();
-
-  private randomState = 0x6d2b79f5;
   private stampAtlas: PawStampAtlas | null = null;
 
   private _revision = 1;
@@ -94,12 +73,7 @@ export class FootprintSystem {
     this.params = params;
 
     const size = Math.max(0.1, footprintWorldSize);
-    this.stride = size * 0.62;
-    this.trackHalf = size * 0.17;
-    this.foreLong = size * 0.06;
-    this.hindLong = -size * 0.2;
-    this.baseScale = size * 0.5;
-    this.nextStride = this.stride;
+    this.baseScale = size * 0.25;
 
     for (let i = 0; i < MAX_FOOTPRINTS; i += 1) {
       this.buffer[i] = {
@@ -114,11 +88,14 @@ export class FootprintSystem {
         ageNormalized: 1,
         depthScale: 0,
         weight: 1,
-        aspect: this.type.aspect
+        aspect: this.type.aspect,
+        decayBias: 1
       };
       this.quantizedAge[i] = 255;
       this.quantizedDepth[i] = 0;
     }
+
+    this.zeroCompositeRange(0);
   }
 
   get revision(): number {
@@ -127,19 +104,7 @@ export class FootprintSystem {
 
   setFootprintWorldSize(worldSize: number): void {
     const size = Math.max(0.1, worldSize);
-    this.stride = size * 0.62;
-    this.trackHalf = size * 0.17;
-    this.foreLong = size * 0.06;
-    this.hindLong = -size * 0.2;
-    this.baseScale = size * 0.5;
-    this.nextStride = this.stride;
-  }
-
-  // Forget the previous drag so a new gesture does not spawn prints along the
-  // line connecting the old end point to the new start point.
-  resetTrail(): void {
-    this.trailInitialized = false;
-    this.trailDistanceSinceSpawn = 0;
+    this.baseScale = size * 0.25;
   }
 
   clear(): void {
@@ -150,16 +115,12 @@ export class FootprintSystem {
       this.buffer[i].depthScale = 0;
       this.buffer[i].weight = 1;
       this.buffer[i].aspect = this.type.aspect;
+      this.buffer[i].decayBias = 1;
       this.quantizedAge[i] = 255;
       this.quantizedDepth[i] = 0;
     }
 
     this.writeIndex = 0;
-    this.gaitIndex = 0;
-    this.trailInitialized = false;
-    this.trailDistanceSinceSpawn = 0;
-    this.swayOffset = 0;
-    this.nextStride = this.stride;
     this.compositeCount = 0;
     this.compositeData.count = 0;
     this.zeroCompositeRange(0);
@@ -194,46 +155,36 @@ export class FootprintSystem {
     return true;
   }
 
-  addAlongTrail(pos: THREE.Vector2, dir: THREE.Vector2): void {
-    const dirLenSq = dir.lengthSq();
-    if (dirLenSq <= 1e-8) {
-      return;
-    }
+  addFootprint(x: number, z: number, yaw: number, opts: AddFootprintOptions): void {
+    const fp = this.buffer[this.writeIndex];
 
-    if (!this.trailInitialized) {
-      this.trailInitialized = true;
-      this.trailLastPos.copy(pos);
-      this.trailDistanceSinceSpawn = this.nextStride;
-    }
+    const t = THREE.MathUtils.clamp(
+      (x - this.params.xLeft) / Math.max(1e-6, this.params.xRight - this.params.xLeft),
+      0,
+      1
+    );
+    const form = THREE.MathUtils.lerp(this.params.formabilityLo, this.params.formabilityHi, t);
+    const decayBias = THREE.MathUtils.lerp(this.params.persistenceDecayHi, this.params.persistenceDecayLo, t);
 
-    this.spawnDir.copy(dir).normalize();
-    const segmentLen = this.spawnPos.subVectors(pos, this.trailLastPos).length();
+    fp.active = true;
+    fp.pos.set(x, z);
+    fp.yaw = yaw;
+    fp.scale = this.baseScale * Math.max(0.05, opts.foreScale) * form;
+    fp.weight = Math.max(0, opts.weight) * form;
+    fp.aspect = this.type.aspect * Math.max(0.05, opts.aspect);
+    fp.side = opts.side;
+    fp.seed = opts.seed;
+    fp.bornTime = performance.now() * 0.001;
+    fp.age = 0;
+    fp.ageNormalized = 0;
+    fp.depthScale = 0;
+    fp.decayBias = decayBias;
 
-    if (segmentLen <= 1e-8) {
-      return;
-    }
+    this.quantizedAge[this.writeIndex] = 0;
+    this.quantizedDepth[this.writeIndex] = 0;
 
-    let consumed = 0;
-    while (consumed < segmentLen) {
-      const remainingToSpawn = this.nextStride - this.trailDistanceSinceSpawn;
-      const step = Math.min(remainingToSpawn, segmentLen - consumed);
-      consumed += step;
-      this.trailDistanceSinceSpawn += step;
-
-      if (this.trailDistanceSinceSpawn >= this.nextStride - 1e-6) {
-        const t = consumed / segmentLen;
-        this.spawnPos.lerpVectors(this.trailLastPos, pos, t);
-        this.spawnFootprint(this.spawnPos, this.spawnDir);
-        this.trailDistanceSinceSpawn = 0;
-        this.nextStride = THREE.MathUtils.clamp(
-          this.stride * (1 + this.gauss() * 0.18),
-          this.stride * 0.7,
-          this.stride * 1.35
-        );
-      }
-    }
-
-    this.trailLastPos.copy(pos);
+    this.writeIndex = (this.writeIndex + 1) % MAX_FOOTPRINTS;
+    this._revision += 1;
   }
 
   update(nowSeconds: number): void {
@@ -245,6 +196,7 @@ export class FootprintSystem {
       (0.35 + this.params.bodyWeight * 0.85) *
       (0.2 + this.params.footprintDepth * 0.9) *
       (1.0 - this.params.hardness * 0.55);
+    const appearDuration = Math.max(0.01, this.params.footprintAppearDuration);
 
     for (let i = 0; i < MAX_FOOTPRINTS; i += 1) {
       const fp = this.buffer[i];
@@ -253,10 +205,10 @@ export class FootprintSystem {
       }
 
       fp.age = Math.max(0, nowSeconds - fp.bornTime);
-      fp.ageNormalized = THREE.MathUtils.clamp(fp.age * decaySpeed * 0.23, 0, 1);
+      fp.ageNormalized = THREE.MathUtils.clamp(fp.age * decaySpeed * 0.23 * fp.decayBias, 0, 1);
 
-      const decay = Math.exp(-fp.age * decaySpeed * 0.9);
-      const appear = easeOutBack(THREE.MathUtils.clamp(fp.age / APPEAR_DURATION, 0, 1));
+      const decay = Math.exp(-fp.age * decaySpeed * 0.9 * fp.decayBias);
+      const appear = easeOutBack(THREE.MathUtils.clamp(fp.age / appearDuration, 0, 1));
       fp.depthScale = depthBase * decay * appear * fp.weight;
 
       const qAge = Math.round(fp.ageNormalized * 255);
@@ -328,55 +280,6 @@ export class FootprintSystem {
     }
   }
 
-  private spawnFootprint(pos: THREE.Vector2, dir: THREE.Vector2): void {
-    const fp = this.buffer[this.writeIndex];
-
-    this.perp.set(-dir.y, dir.x);
-    const g = GAIT[this.gaitIndex % 4];
-    this.gaitIndex += 1;
-    const laneSign = g.lane;
-    const fore = g.fore;
-
-    // Gentle body sway, centred between the two track lanes.
-    this.swayOffset = THREE.MathUtils.clamp(
-      this.swayOffset + this.gauss() * this.trackHalf * 0.18,
-      -this.trackHalf * 0.6,
-      this.trackHalf * 0.6
-    );
-
-    const longOffset = (fore ? this.foreLong : this.hindLong) + this.gauss() * this.stride * 0.06;
-    const acrossJitter = this.gauss() * this.trackHalf * 0.12;
-    const angleJitter = this.gauss() * 0.1;
-
-    fp.active = true;
-    fp.pos
-      .copy(pos)
-      .addScaledVector(dir, longOffset)
-      .addScaledVector(this.perp, laneSign * this.trackHalf + this.swayOffset + acrossJitter);
-
-    // Toes point along the direction of travel. Front feet toe-out more; hind
-    // feet near-register behind the front print and stay closer to the heading.
-    const toeOut = (fore ? 0.2 : 0.06) * laneSign;
-    fp.yaw = Math.atan2(dir.y, dir.x) - Math.PI * 0.5 + toeOut + angleJitter;
-
-    const scaleJitter = 1.0 + this.gauss() * 0.1;
-    fp.scale = this.baseScale * (fore ? 1.0 : 0.82) * scaleJitter;
-    fp.weight = fore ? 1.15 : 0.72;
-    fp.aspect = this.type.aspect * (fore ? 1.05 : 0.85);
-    fp.side = laneSign;
-    fp.seed = this.random01() * 1000.0;
-    fp.bornTime = performance.now() * 0.001;
-    fp.age = 0;
-    fp.ageNormalized = 0;
-    fp.depthScale = 0.0;
-
-    this.quantizedAge[this.writeIndex] = 0;
-    this.quantizedDepth[this.writeIndex] = 0;
-
-    this.writeIndex = (this.writeIndex + 1) % MAX_FOOTPRINTS;
-    this._revision += 1;
-  }
-
   private zeroCompositeRange(fromIndex: number): void {
     for (let i = fromIndex; i < MAX_FOOTPRINTS; i += 1) {
       const base = i * 4;
@@ -417,15 +320,5 @@ export class FootprintSystem {
     this.zeroCompositeRange(activeCount);
     this.compositeCount = activeCount;
     this.compositeData.count = activeCount;
-  }
-
-  private random01(): number {
-    this.randomState = (1664525 * this.randomState + 1013904223) >>> 0;
-    return this.randomState / 4294967296;
-  }
-
-  // -1.5..+1.5 付近に集中する近似正規乱数（平均0, 標準偏差≈0.5）
-  private gauss(): number {
-    return this.random01() + this.random01() + this.random01() - 1.5;
   }
 }

@@ -2,3 +2,6 @@ node_modules/
 dist/
 *.log
 _codex/
+
+# bridge orchestration artifacts (prompts, user reference photo) - not tracked
+.bridge/
