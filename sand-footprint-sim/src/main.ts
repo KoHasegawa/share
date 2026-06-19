@@ -36,7 +36,7 @@ async function boot(): Promise<void> {
 
   const sandParams: SandParams = { ...defaultSandParams };
 
-  const footprintWorldSize = cameraController.worldHeight() * 0.1;
+  const footprintWorldSize = cameraController.worldHeight() * 0.2;
   const footprintSystem = new FootprintSystem(dogFootprint, sandParams, footprintWorldSize);
 
   const sandPlane = new SandPlane(renderer, sandParams);
@@ -65,7 +65,7 @@ async function boot(): Promise<void> {
     renderer.setSize(width, height, false);
     cameraController.resize(width, height);
 
-    footprintSystem.setFootprintWorldSize(cameraController.worldHeight() * 0.1);
+    footprintSystem.setFootprintWorldSize(cameraController.worldHeight() * 0.2);
 
     const halfSweep = cameraController.worldHeight() * 0.5 + 0.9;
     washWave.setSweepBounds(halfSweep, -halfSweep);
