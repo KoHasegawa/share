@@ -201,6 +201,17 @@ float hash12(vec2 p) {
   return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
 }
 
+float valueNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = hash12(i);
+  float b = hash12(i + vec2(1.0, 0.0));
+  float c = hash12(i + vec2(0.0, 1.0));
+  float d = hash12(i + vec2(1.0, 1.0));
+  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
 void main() {
   vec2 world = vec2((vUv.x - 0.5) * uPlaneSize, (0.5 - vUv.y) * uPlaneSize);
   float height = 0.0;
@@ -254,11 +265,19 @@ void main() {
     float depth = b.y * (0.55 + 0.45 * uBodyWeight) * (0.55 + 0.45 * uFootDepth);
     float depression = mask * depth;
 
-    float rim = max(outer - mask, 0.0);
+    float wallAO = max(outer - mask, 0.0);
+    float rim = wallAO;
+    float forwardness = clamp(local.y * 0.5 + 0.5, 0.0, 1.0);
+    float outward = clamp(abs(local.x), 0.0, 1.0);
+    float rimDir = mix(0.65, 1.25, forwardness) + outward * 0.25;
+    rim *= rimDir;
     rim *= uRimHeight * (0.45 + 0.55 * uCohesion) * depth * (0.6 + 0.4 * ageFade);
 
+    float bottomNoise = valueNoise(world * 26.0 + vec2(b.w)) - 0.5;
+
     height += (-depression + rim);
-    dark += mask * depth * ageFade;
+    height += bottomNoise * depression * 0.14;
+    dark += clamp((wallAO * 2.2 + mask * 0.5) * depth * ageFade, 0.0, 1.0);
   }
 
   float outHeight = height;
