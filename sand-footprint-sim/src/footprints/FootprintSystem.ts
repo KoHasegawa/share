@@ -8,6 +8,15 @@ export const MAX_FOOTPRINTS = 15;
 // How long a fresh print takes to fully "press" into the sand.
 const APPEAR_DURATION = 0.18;
 
+// Dog walk diagonal footfall sequence.
+// lane: -1=left track, +1=right track / fore: front foot or hind foot
+const GAIT: ReadonlyArray<{ lane: -1 | 1; fore: boolean }> = [
+  { lane: -1, fore: true }, // Front-Left
+  { lane: 1, fore: false }, // Hind-Right
+  { lane: 1, fore: true }, // Front-Right
+  { lane: -1, fore: false } // Hind-Left
+];
+
 // Ease-out-back: rises past 1.0 then settles, giving the print a small
 // stamping "pop" as it pushes into the sand.
 function easeOutBack(t: number): number {
@@ -28,6 +37,8 @@ export interface Footprint {
   age: number;
   ageNormalized: number;
   depthScale: number;
+  weight: number;
+  aspect: number;
 }
 
 export interface FootprintCompositeData {
@@ -55,10 +66,12 @@ export class FootprintSystem {
   private readonly quantizedDepth = new Uint8Array(MAX_FOOTPRINTS);
 
   private writeIndex = 0;
-  private nextSide: -1 | 1 = -1;
+  private gaitIndex = 0;
 
   private stride: number;
-  private lateralOffset: number;
+  private trackHalf = 0;
+  private foreLong = 0;
+  private hindLong = 0;
   private baseScale: number;
   private nextStride = 0;
   private swayOffset = 0;
@@ -82,7 +95,9 @@ export class FootprintSystem {
 
     const size = Math.max(0.1, footprintWorldSize);
     this.stride = size * 0.62;
-    this.lateralOffset = size * 0.17;
+    this.trackHalf = size * 0.17;
+    this.foreLong = size * 0.06;
+    this.hindLong = -size * 0.2;
     this.baseScale = size * 0.5;
     this.nextStride = this.stride;
 
@@ -97,7 +112,9 @@ export class FootprintSystem {
         bornTime: 0,
         age: 0,
         ageNormalized: 1,
-        depthScale: 0
+        depthScale: 0,
+        weight: 1,
+        aspect: this.type.aspect
       };
       this.quantizedAge[i] = 255;
       this.quantizedDepth[i] = 0;
@@ -111,7 +128,9 @@ export class FootprintSystem {
   setFootprintWorldSize(worldSize: number): void {
     const size = Math.max(0.1, worldSize);
     this.stride = size * 0.62;
-    this.lateralOffset = size * 0.17;
+    this.trackHalf = size * 0.17;
+    this.foreLong = size * 0.06;
+    this.hindLong = -size * 0.2;
     this.baseScale = size * 0.5;
     this.nextStride = this.stride;
   }
@@ -129,12 +148,14 @@ export class FootprintSystem {
       this.buffer[i].age = 0;
       this.buffer[i].ageNormalized = 1;
       this.buffer[i].depthScale = 0;
+      this.buffer[i].weight = 1;
+      this.buffer[i].aspect = this.type.aspect;
       this.quantizedAge[i] = 255;
       this.quantizedDepth[i] = 0;
     }
 
     this.writeIndex = 0;
-    this.nextSide = -1;
+    this.gaitIndex = 0;
     this.trailInitialized = false;
     this.trailDistanceSinceSpawn = 0;
     this.swayOffset = 0;
@@ -236,7 +257,7 @@ export class FootprintSystem {
 
       const decay = Math.exp(-fp.age * decaySpeed * 0.9);
       const appear = easeOutBack(THREE.MathUtils.clamp(fp.age / APPEAR_DURATION, 0, 1));
-      fp.depthScale = depthBase * decay * appear;
+      fp.depthScale = depthBase * decay * appear * fp.weight;
 
       const qAge = Math.round(fp.ageNormalized * 255);
       const qDepth = Math.round(THREE.MathUtils.clamp(fp.depthScale, 0, 1) * 255);
@@ -261,7 +282,7 @@ export class FootprintSystem {
 
       this.compositeScaleDepthAspectSeed[outBase] = fp.scale;
       this.compositeScaleDepthAspectSeed[outBase + 1] = fp.depthScale;
-      this.compositeScaleDepthAspectSeed[outBase + 2] = fp.side * this.type.aspect;
+      this.compositeScaleDepthAspectSeed[outBase + 2] = fp.side * fp.aspect;
       this.compositeScaleDepthAspectSeed[outBase + 3] = fp.seed;
 
       activeCount += 1;
@@ -311,32 +332,38 @@ export class FootprintSystem {
     const fp = this.buffer[this.writeIndex];
 
     this.perp.set(-dir.y, dir.x);
-    const side = this.nextSide;
-    this.nextSide = side === -1 ? 1 : -1;
+    const g = GAIT[this.gaitIndex % 4];
+    this.gaitIndex += 1;
+    const laneSign = g.lane;
+    const fore = g.fore;
 
+    // Gentle body sway, centred between the two track lanes.
     this.swayOffset = THREE.MathUtils.clamp(
-      this.swayOffset + this.gauss() * this.lateralOffset * 0.22,
-      -this.lateralOffset * 0.9,
-      this.lateralOffset * 0.9
+      this.swayOffset + this.gauss() * this.trackHalf * 0.18,
+      -this.trackHalf * 0.6,
+      this.trackHalf * 0.6
     );
 
-    const angleJitter = this.gauss() * 0.16;
-    const scaleJitter = 1.0 + this.gauss() * 0.12;
-
-    const alongJitter = this.gauss() * this.nextStride * 0.1;
-    const acrossJitter = this.gauss() * this.lateralOffset * 0.3;
+    const longOffset = (fore ? this.foreLong : this.hindLong) + this.gauss() * this.stride * 0.06;
+    const acrossJitter = this.gauss() * this.trackHalf * 0.12;
+    const angleJitter = this.gauss() * 0.1;
 
     fp.active = true;
     fp.pos
       .copy(pos)
-      .addScaledVector(dir, alongJitter)
-      .addScaledVector(this.perp, side * this.lateralOffset + this.swayOffset + acrossJitter);
+      .addScaledVector(dir, longOffset)
+      .addScaledVector(this.perp, laneSign * this.trackHalf + this.swayOffset + acrossJitter);
 
-    // Toes point along the direction of travel (was reversed: +PI/2 pointed
-    // the paw backwards relative to the drag).
-    fp.yaw = Math.atan2(dir.y, dir.x) - Math.PI * 0.5 + side * 0.05 + angleJitter;
-    fp.scale = this.baseScale * scaleJitter;
-    fp.side = side;
+    // Toes point along the direction of travel. Front feet toe-out more; hind
+    // feet near-register behind the front print and stay closer to the heading.
+    const toeOut = (fore ? 0.2 : 0.06) * laneSign;
+    fp.yaw = Math.atan2(dir.y, dir.x) - Math.PI * 0.5 + toeOut + angleJitter;
+
+    const scaleJitter = 1.0 + this.gauss() * 0.1;
+    fp.scale = this.baseScale * (fore ? 1.0 : 0.82) * scaleJitter;
+    fp.weight = fore ? 1.15 : 0.72;
+    fp.aspect = this.type.aspect * (fore ? 1.05 : 0.85);
+    fp.side = laneSign;
     fp.seed = this.random01() * 1000.0;
     fp.bornTime = performance.now() * 0.001;
     fp.age = 0;
@@ -381,7 +408,7 @@ export class FootprintSystem {
 
       this.compositeScaleDepthAspectSeed[outBase] = fp.scale;
       this.compositeScaleDepthAspectSeed[outBase + 1] = fp.depthScale;
-      this.compositeScaleDepthAspectSeed[outBase + 2] = fp.side * this.type.aspect;
+      this.compositeScaleDepthAspectSeed[outBase + 2] = fp.side * fp.aspect;
       this.compositeScaleDepthAspectSeed[outBase + 3] = fp.seed;
 
       activeCount += 1;
