@@ -19,6 +19,23 @@ export function createGui(params: SandParams, opts: CreateGuiOptions): GUI {
   sandFolder.add(params, 'hardness', 0, 1, 0.01).name('Hardness');
   sandFolder.add(params, 'grainSize', 0, 1, 0.01).name('Grain Size');
   sandFolder.add(params, 'cohesion', 0, 1, 0.01).name('Cohesion');
+
+  // Sand colour gradient: 0 = white beach, 0.5 = golden, 1 = deep brown.
+  const toneCtrl = sandFolder.add(params, 'sandTone', 0, 1, 0.01).name('Color (white→brown)');
+  const colorPresets = {
+    'White Beach': (): void => {
+      toneCtrl.setValue(0.05);
+    },
+    Golden: (): void => {
+      toneCtrl.setValue(0.5);
+    },
+    Brown: (): void => {
+      toneCtrl.setValue(1.0);
+    }
+  };
+  sandFolder.add(colorPresets, 'White Beach').name('▸ White Beach');
+  sandFolder.add(colorPresets, 'Golden').name('▸ Golden');
+  sandFolder.add(colorPresets, 'Brown').name('▸ Brown');
   sandFolder.open();
 
   const footprintFolder = gui.addFolder('Footprint');
