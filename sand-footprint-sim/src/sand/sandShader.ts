@@ -508,8 +508,12 @@ roughnessFactor = clamp(roughnessFactor, 0.12, 0.98);`
 
   material.customProgramCacheKey = (): string => 'sand-heightfield-v8-warped-meso';
 
-  const dryColor = new THREE.Color('#f1ddb4');
-  const wetColor = new THREE.Color('#b9a17a');
+  // Sand colour palette stops for the `sandTone` gradient (dry sand).
+  const toneWhite = new THREE.Color('#f3ecd9'); // pale white beach
+  const toneGold = new THREE.Color('#f1ddb4'); // golden coastal sand
+  const toneBrown = new THREE.Color('#c0904f'); // deep ochre / brown sand
+  const dryColor = new THREE.Color();
+  const wetColor = new THREE.Color();
 
   const updateFromParams = (params: SandParams): void => {
     uniforms.moisture.value = params.moisture;
@@ -524,6 +528,16 @@ roughnessFactor = clamp(roughnessFactor, 0.12, 0.98);`
     uniforms.darkeningStrength.value = params.darkeningStrength;
     uniforms.noiseStrength.value = params.noiseStrength;
     uniforms.displacementScale.value = params.footprintDepth * 0.62;
+
+    // Build the dry sand colour from the tone gradient (white -> gold -> brown).
+    const tone = THREE.MathUtils.clamp(params.sandTone, 0, 1);
+    if (tone < 0.5) {
+      dryColor.copy(toneWhite).lerp(toneGold, tone * 2);
+    } else {
+      dryColor.copy(toneGold).lerp(toneBrown, (tone - 0.5) * 2);
+    }
+    // Wet sand is a darker, slightly desaturated version of the dry colour.
+    wetColor.setRGB(dryColor.r * 0.77, dryColor.g * 0.73, dryColor.b * 0.68);
 
     const moisture = THREE.MathUtils.clamp(params.moisture, 0, 1);
     material.color.copy(dryColor).lerp(wetColor, moisture * 0.72);
