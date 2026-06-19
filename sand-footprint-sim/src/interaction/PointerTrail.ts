@@ -2,11 +2,13 @@ import * as THREE from 'three';
 
 export type ScreenToWorldFn = (px: number, py: number, target?: THREE.Vector2) => THREE.Vector2;
 export type PointerMoveCallback = (worldPos: THREE.Vector2, dir: THREE.Vector2) => void;
+export type PointerStartCallback = () => void;
 
 const DEFAULT_SMOOTHING = 18.0;
 
 export class PointerTrail {
   private readonly callbacks: PointerMoveCallback[] = [];
+  private readonly startCallbacks: PointerStartCallback[] = [];
 
   private dom: HTMLElement | null = null;
   private screenToWorld: ScreenToWorldFn | null = null;
@@ -41,6 +43,10 @@ export class PointerTrail {
     this.rawDir.set(0, 0);
     this.smoothDir.set(0, 1);
     this.lastEventTimeMs = event.timeStamp;
+
+    for (let i = 0; i < this.startCallbacks.length; i += 1) {
+      this.startCallbacks[i]();
+    }
 
     if (typeof this.dom.setPointerCapture === 'function') {
       this.dom.setPointerCapture(event.pointerId);
@@ -101,6 +107,10 @@ export class PointerTrail {
 
   onMove(cb: PointerMoveCallback): void {
     this.callbacks.push(cb);
+  }
+
+  onStart(cb: PointerStartCallback): void {
+    this.startCallbacks.push(cb);
   }
 
   attach(dom: HTMLElement, screenToWorld: ScreenToWorldFn): void {

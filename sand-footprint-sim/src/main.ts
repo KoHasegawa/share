@@ -53,6 +53,9 @@ async function boot(): Promise<void> {
 
   const pointerTrail = new PointerTrail();
   pointerTrail.attach(renderer.domElement as HTMLElement, cameraController.screenToWorld);
+  pointerTrail.onStart(() => {
+    footprintSystem.resetTrail();
+  });
   pointerTrail.onMove((worldPos, dir) => {
     footprintSystem.addAlongTrail(worldPos, dir);
   });
