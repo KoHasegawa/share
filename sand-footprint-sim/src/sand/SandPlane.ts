@@ -118,7 +118,7 @@ export class SandPlane {
   private lastBodyWeight = Number.NaN;
   private lastFootDepth = Number.NaN;
 
-  constructor(renderer: RendererLike, initialParams: SandParams, size = 40, segments = 256) {
+  constructor(renderer: RendererLike, initialParams: SandParams, size = 40, segments = 384) {
     this.renderer = renderer;
     this.planeSize = size;
 
@@ -156,11 +156,13 @@ export class SandPlane {
       uniforms: {
         uFootprintCount: { value: 0 },
         uStampMap: { value: null as THREE.Texture | null },
-        uStampTexel: { value: 1 / 256 },
+        uStampTexel: { value: new THREE.Vector2(1 / 768, 1 / 512) },
+        uStampGrid: { value: new THREE.Vector2(3, 2) },
+        uTileCount: { value: 6 },
         uPlaneSize: { value: this.planeSize },
         uFootA: { value: this.stampA },
         uFootB: { value: this.stampB },
-        uRimHeight: { value: initialParams.rimHeight * 0.7 },
+        uRimHeight: { value: initialParams.rimHeight * 0.92 },
         uCohesion: { value: initialParams.cohesion },
         uEdgeCollapse: { value: initialParams.edgeCollapse },
         uBodyWeight: { value: initialParams.bodyWeight },
@@ -179,7 +181,9 @@ void main() {
 precision highp float;
 uniform int uFootprintCount;
 uniform sampler2D uStampMap;
-uniform float uStampTexel;
+uniform vec2 uStampTexel;
+uniform vec2 uStampGrid;
+uniform float uTileCount;
 uniform float uPlaneSize;
 uniform vec4 uFootA[${MAX_FOOTPRINTS}];
 uniform vec4 uFootB[${MAX_FOOTPRINTS}];
@@ -224,7 +228,14 @@ void main() {
       continue;
     }
 
-    float mask = texture2D(uStampMap, suv).r;
+    // Pick a paw variant from the atlas based on this print's seed, then remap
+    // the tile-local uv into that atlas cell.
+    float fi = fract(sin(b.w * 12.9898 + 4.21) * 43758.5453);
+    float tileI = min(floor(fi * uTileCount), uTileCount - 1.0);
+    vec2 cell = vec2(mod(tileI, uStampGrid.x), floor(tileI / uStampGrid.x));
+    vec2 atlasUv = (cell + suv) / uStampGrid;
+
+    float mask = texture2D(uStampMap, atlasUv).r;
     if (mask <= 1e-4) {
       continue;
     }
@@ -233,10 +244,10 @@ void main() {
     float collapse = mix(1.0, smoothstep(uEdgeCollapse, 1.0, n), uEdgeCollapse * 0.78);
     mask *= collapse;
 
-    float blurX = texture2D(uStampMap, suv + vec2(uStampTexel, 0.0)).r;
-    float blurXm = texture2D(uStampMap, suv - vec2(uStampTexel, 0.0)).r;
-    float blurY = texture2D(uStampMap, suv + vec2(0.0, uStampTexel)).r;
-    float blurYm = texture2D(uStampMap, suv - vec2(0.0, uStampTexel)).r;
+    float blurX = texture2D(uStampMap, atlasUv + vec2(uStampTexel.x, 0.0)).r;
+    float blurXm = texture2D(uStampMap, atlasUv - vec2(uStampTexel.x, 0.0)).r;
+    float blurY = texture2D(uStampMap, atlasUv + vec2(0.0, uStampTexel.y)).r;
+    float blurYm = texture2D(uStampMap, atlasUv - vec2(0.0, uStampTexel.y)).r;
     float outer = max(max(blurX, blurXm), max(blurY, blurYm));
 
     float ageFade = 1.0 - a.w;
@@ -278,7 +289,7 @@ void main() {
   update(_dt: number, params: SandParams): void {
     this.materialBundle.updateFromParams(params);
 
-    const rim = params.rimHeight * 0.7;
+    const rim = params.rimHeight * 0.92;
     this.composeMaterial.uniforms.uRimHeight.value = rim;
     this.composeMaterial.uniforms.uCohesion.value = params.cohesion;
     this.composeMaterial.uniforms.uEdgeCollapse.value = params.edgeCollapse;
@@ -355,11 +366,14 @@ void main() {
 
     let count = 0;
     if (this.footprintSystem) {
-      const stamp = this.footprintSystem.getStampTexture(params.edgeCollapse);
-      this.composeMaterial.uniforms.uStampMap.value = stamp;
-      const stampImage = stamp.image as { width?: number } | undefined;
-      const width = stampImage && typeof stampImage.width === 'number' ? Math.max(1, stampImage.width) : 256;
-      this.composeMaterial.uniforms.uStampTexel.value = 1 / width;
+      const atlas = this.footprintSystem.getStampAtlas();
+      this.composeMaterial.uniforms.uStampMap.value = atlas.texture;
+      this.composeMaterial.uniforms.uStampTexel.value.set(
+        1 / (atlas.tileSize * atlas.cols),
+        1 / (atlas.tileSize * atlas.rows)
+      );
+      this.composeMaterial.uniforms.uStampGrid.value.set(atlas.cols, atlas.rows);
+      this.composeMaterial.uniforms.uTileCount.value = atlas.count;
 
       const data = this.footprintSystem.getCompositeData();
       count = data.count;
