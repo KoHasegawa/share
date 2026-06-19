@@ -19,7 +19,7 @@ export function createLights(scene: THREE.Scene): SceneLights {
   directional.shadow.mapSize.set(1024, 1024);
   directional.shadow.bias = -0.00012;
   directional.shadow.normalBias = 0.014;
-  directional.shadow.radius = 2.4;
+  directional.shadow.radius = 1.6;
 
   const shadowExtent = 12.5;
   directional.shadow.camera.left = -shadowExtent;

@@ -358,6 +358,19 @@ float sandFbm(vec2 p) {
   return value / 0.9375;
 }
 
+vec2 sandWarp(vec2 p) {
+  float wx = sandFbm(p * 0.35 + vec2(11.3, 4.1));
+  float wy = sandFbm(p * 0.35 + vec2(2.7, 19.6));
+  return p + (vec2(wx, wy) - 0.5) * 1.2;
+}
+
+float sandSurfaceHeight(vec2 wp) {
+  float meso = (sandFbm(wp * 0.18 + vec2(3.1, 7.7)) - 0.5) * 2.0;
+  float band = sin(wp.y * 0.9);
+  float ripple = (sandFbm(vec2(wp.x * 1.6, wp.y * 6.0)) - 0.5) * 2.0;
+  return meso * 0.55 + band * 0.18 + ripple * 0.27;
+}
+
 vec3 sandDesaturate(vec3 color, float amount) {
   float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
   return mix(color, vec3(luma), clamp(amount, 0.0, 1.0));
@@ -377,11 +390,16 @@ float hD = sampleSandHeight(vSandUv - vec2(0.0, sandHeightTexel.y));
 float hU = sampleSandHeight(vSandUv + vec2(0.0, sandHeightTexel.y));
 vec3 macroNormalObject = normalize(vec3((hL - hR) * displacementScale * 8.5, 1.0, (hU - hD) * displacementScale * 8.5));
 vec3 macroNormalView = normalize((modelViewMatrix * vec4(macroNormalObject, 0.0)).xyz);
-normal = normalize(mix(normal, macroNormalView, 0.82));`
+normal = normalize(mix(normal, macroNormalView, 0.82));
+vec3 sandMesoNView = normalize(vec3(-dFdx(sandSH), -dFdy(sandSH), 1.0) * vec3(1.6, 1.6, 1.0));
+normal = normalize(mix(normal, normalize(vNormal + sandMesoNView * 0.6), 0.30));`
       )
       .replace(
         '#include <map_fragment>',
         `#include <map_fragment>
+vec2 sandSW = sandWarp(vSandWorld);
+float sandSH = sandSurfaceHeight(sandSW);
+
 float sandShadeCenter = sampleSandHeight(vSandUv);
 float sandShadeL = sampleSandHeight(vSandUv - vec2(sandHeightTexel.x, 0.0));
 float sandShadeR = sampleSandHeight(vSandUv + vec2(sandHeightTexel.x, 0.0));
@@ -390,14 +408,28 @@ float sandShadeU = sampleSandHeight(vSandUv + vec2(0.0, sandHeightTexel.y));
 float sandShadeAverage = (sandShadeL + sandShadeR + sandShadeD + sandShadeU) * 0.25;
 
 // Large-scale natural colour variation across the beach: broad patches of
-// whiter and browner sand. Driven by world position (not the tiled texture
-// uv), so the patches never repeat with the texture tiling.
-float sandPatch = smoothstep(0.30, 0.70, sandFbm(vSandWorld * 0.16 + vec2(13.0, 7.0)));
+// whiter and browner sand. Driven by warped world position (not the tiled
+// texture uv), so the patches never repeat with the texture tiling.
+float sandPatch = smoothstep(0.30, 0.70, sandValueNoise(sandSW * 0.16 + vec2(13.0, 7.0)));
 vec3 sandWhite = diffuseColor.rgb * vec3(1.11, 1.10, 1.07);
 vec3 sandBrown = diffuseColor.rgb * vec3(0.78, 0.64, 0.45);
 diffuseColor.rgb = mix(sandBrown, sandWhite, sandPatch);
-float sandMottle = sandFbm(vSandWorld * 0.52 + vec2(-4.0, 9.0));
+float sandMottle = sandValueNoise(sandSW * 0.52 + vec2(-4.0, 9.0));
 diffuseColor.rgb *= 1.0 + (sandMottle - 0.5) * 0.12;
+
+float troughAO = smoothstep(0.15, -0.5, sandSH);
+diffuseColor.rgb *= 1.0 - troughAO * 0.22;
+diffuseColor.rgb = mix(
+  diffuseColor.rgb * vec3(0.86, 0.80, 0.68),
+  diffuseColor.rgb * vec3(1.05, 1.04, 1.02),
+  smoothstep(-0.3, 0.5, sandSH)
+);
+
+float grainHi = sandValueNoise(vSandWorld * 320.0);
+float quartz = smoothstep(0.86, 1.0, grainHi);
+float heavy = smoothstep(0.0, 0.10, grainHi);
+diffuseColor.rgb += vec3(0.05) * quartz;
+diffuseColor.rgb -= vec3(0.05, 0.045, 0.04) * heavy;
 
 float heightTint = clamp(sandShadeCenter * displacementScale * 6.0, -1.0, 1.0);
 diffuseColor.rgb *= 1.0 + heightTint * 0.06;
@@ -435,20 +467,24 @@ diffuseColor.rgb *= 1.0 - clamp(sandStain, 0.0, 0.58);
 vec3 sandDampened = sandDesaturate(diffuseColor.rgb, 0.16 + sandMoisture * 0.1) * vec3(0.86, 0.87, 0.88);
 diffuseColor.rgb = mix(diffuseColor.rgb, sandDampened, sandMoisture * 0.62);
 
-float sandFrontDistance = vSandWorld.y - washFront;
-float sandWaveWarp = (sandFbm(vec2(vSandWorld.x * 0.62 + washProgress * 1.7, vSandWorld.y * 0.16 - washProgress * 0.9)) - 0.5) * 0.22;
-float sandFoamDistance = abs(sandFrontDistance + sandWaveWarp);
-float sandFoamCore = 1.0 - smoothstep(0.018, 0.16, sandFoamDistance);
-float sandFoamFeather = 1.0 - smoothstep(0.1, 0.44, sandFoamDistance);
-float sandFoamLow = sandFbm(vSandWorld * vec2(3.5, 7.0) + vec2(washProgress * 2.6, -washProgress * 6.4));
-float sandFoamMid = sandFbm(vSandWorld * vec2(12.0, 19.0) + vec2(-washProgress * 11.0, washProgress * 8.5));
-float sandFoamHigh = sandFbm(vSandWorld * vec2(34.0, 47.0) + vec2(-washProgress * 24.0, washProgress * 19.0));
-float sandFoamLace = smoothstep(0.42, 0.78, sandFoamLow) * (1.0 - smoothstep(0.68, 0.94, sandFoamMid));
-float sandFoamSpeckles = smoothstep(0.72, 0.96, sandFoamHigh) * smoothstep(0.22, 0.72, sandFoamMid);
-float sandFoam = clamp((sandFoamCore * (0.65 + 0.35 * sandFoamLace) + sandFoamFeather * (sandFoamLace * 0.34 + sandFoamSpeckles * 0.42)) * sandFrontBand * (1.0 - sandDryBack) * clamp(washProgress * 2.0, 0.0, 1.0), 0.0, 1.0);
+float sandFoam = 0.0;
+float sandSheetSheen = 0.0;
+if (washProgress > 0.001) {
+  float sandFrontDistance = vSandWorld.y - washFront;
+  float sandWaveWarp = (sandFbm(vec2(vSandWorld.x * 0.62 + washProgress * 1.7, vSandWorld.y * 0.16 - washProgress * 0.9)) - 0.5) * 0.22;
+  float sandFoamDistance = abs(sandFrontDistance + sandWaveWarp);
+  float sandFoamCore = 1.0 - smoothstep(0.018, 0.16, sandFoamDistance);
+  float sandFoamFeather = 1.0 - smoothstep(0.1, 0.44, sandFoamDistance);
+  float sandFoamLow = sandFbm(vSandWorld * vec2(3.5, 7.0) + vec2(washProgress * 2.6, -washProgress * 6.4));
+  float sandFoamMid = sandFbm(vSandWorld * vec2(12.0, 19.0) + vec2(-washProgress * 11.0, washProgress * 8.5));
+  float sandFoamHigh = sandFbm(vSandWorld * vec2(34.0, 47.0) + vec2(-washProgress * 24.0, washProgress * 19.0));
+  float sandFoamLace = smoothstep(0.42, 0.78, sandFoamLow) * (1.0 - smoothstep(0.68, 0.94, sandFoamMid));
+  float sandFoamSpeckles = smoothstep(0.72, 0.96, sandFoamHigh) * smoothstep(0.22, 0.72, sandFoamMid);
+  sandFoam = clamp((sandFoamCore * (0.65 + 0.35 * sandFoamLace) + sandFoamFeather * (sandFoamLace * 0.34 + sandFoamSpeckles * 0.42)) * sandFrontBand * (1.0 - sandDryBack) * clamp(washProgress * 2.0, 0.0, 1.0), 0.0, 1.0);
 
-float sandSheetNoise = sandFbm(vSandWorld * vec2(1.35, 2.05) + vec2(washProgress * 3.1, -washProgress * 2.4));
-float sandSheetSheen = sandWetFilm * (0.25 + 0.75 * smoothstep(0.4, 0.88, sandSheetNoise));
+  float sandSheetNoise = sandFbm(vSandWorld * vec2(1.35, 2.05) + vec2(washProgress * 3.1, -washProgress * 2.4));
+  sandSheetSheen = sandWetFilm * (0.25 + 0.75 * smoothstep(0.4, 0.88, sandSheetNoise));
+}
 vec3 sandWaterTint = sandDesaturate(diffuseColor.rgb, 0.26) * vec3(0.73, 0.78, 0.83);
 diffuseColor.rgb = mix(diffuseColor.rgb, sandWaterTint, sandWetFilm * 0.5);
 diffuseColor.rgb += vec3(0.04, 0.05, 0.055) * sandSheetSheen;
@@ -458,15 +494,19 @@ diffuseColor.rgb = min(diffuseColor.rgb, vec3(1.0));`
       .replace(
         '#include <roughnessmap_fragment>',
         `#include <roughnessmap_fragment>
+float sandGrainR = sandValueNoise(vSandWorld * 320.0);
+roughnessFactor += (sandGrainR - 0.5) * 0.18;
+float sandTroughWet = smoothstep(0.15, -0.5, sandSH);
+roughnessFactor = mix(roughnessFactor, 0.5, sandTroughWet * 0.4);
 roughnessFactor = mix(roughnessFactor, 0.42, clamp(footprintDark, 0.0, 1.0) * 0.55);
 float sandMoistureForRoughness = clamp(moisture, 0.0, 1.0);
 roughnessFactor = mix(roughnessFactor, 0.48, sandMoistureForRoughness * 0.55);
 roughnessFactor = mix(roughnessFactor, 0.18, sandWetFilm * 0.86);
-roughnessFactor = clamp(roughnessFactor, 0.16, 0.96);`
+roughnessFactor = clamp(roughnessFactor, 0.12, 0.98);`
       );
   };
 
-  material.customProgramCacheKey = (): string => 'sand-heightfield-v7-color-depth';
+  material.customProgramCacheKey = (): string => 'sand-heightfield-v8-warped-meso';
 
   const dryColor = new THREE.Color('#f1ddb4');
   const wetColor = new THREE.Color('#b9a17a');

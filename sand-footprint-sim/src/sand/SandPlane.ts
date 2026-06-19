@@ -246,8 +246,10 @@ void main() {
     vec2 cell = vec2(mod(tileI, uStampGrid.x), floor(tileI / uStampGrid.x));
     vec2 atlasUv = (cell + suv) / uStampGrid;
 
-    float mask = texture2D(uStampMap, atlasUv).r;
-    if (mask <= 1e-4) {
+    vec4 stampSample = texture2D(uStampMap, atlasUv);
+    float mask = stampSample.r;
+    float mound = stampSample.g;
+    if (max(mask, mound) <= 1e-4) {
       continue;
     }
 
@@ -276,6 +278,7 @@ void main() {
     float bottomNoise = valueNoise(world * 26.0 + vec2(b.w)) - 0.5;
 
     height += (-depression + rim);
+    height += mound * depth * 0.55 * ageFade;
     height += bottomNoise * depression * 0.14;
     dark += clamp((wallAO * 2.2 + mask * 0.5) * depth * ageFade, 0.0, 1.0);
   }

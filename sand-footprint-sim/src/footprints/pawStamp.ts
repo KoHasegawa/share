@@ -177,8 +177,58 @@ function sampleEllipsePad(u: number, v: number, pad: EllipsePad, edgeCollapse: n
   return pad.amplitude * bowl * crumble;
 }
 
+function buildMoundPads(toes: EllipsePad[], claws: EllipsePad[]): EllipsePad[] {
+  const mounds: EllipsePad[] = [];
+
+  let toeIndex = 0;
+  for (const toe of toes) {
+    const forwardX = Math.sin(toe.rotation);
+    const forwardY = -Math.cos(toe.rotation);
+    const distance = toe.ry * 1.1 + 0.02;
+
+    mounds.push({
+      cx: toe.cx + forwardX * distance,
+      cy: toe.cy + forwardY * distance,
+      rx: toe.rx * 0.85,
+      ry: toe.ry * 0.7,
+      rotation: toe.rotation,
+      amplitude: 0.46,
+      exponent: 1.6,
+      seedOffset: 80.0 + toeIndex,
+      roughness: 0.16,
+      crumble: 0.08
+    });
+
+    toeIndex += 1;
+  }
+
+  let clawIndex = 0;
+  for (const claw of claws) {
+    const forwardX = Math.sin(claw.rotation);
+    const forwardY = -Math.cos(claw.rotation);
+    const distance = claw.ry * 0.95 + 0.014;
+
+    mounds.push({
+      cx: claw.cx + forwardX * distance,
+      cy: claw.cy + forwardY * distance,
+      rx: Math.max(claw.rx * 2.4, 0.012),
+      ry: Math.max(claw.ry * 0.68, 0.018),
+      rotation: claw.rotation,
+      amplitude: 0.24,
+      exponent: 1.65,
+      seedOffset: 90.0 + clawIndex,
+      roughness: 0.14,
+      crumble: 0.08
+    });
+
+    clawIndex += 1;
+  }
+
+  return mounds;
+}
+
 function makeFallbackTexture(): THREE.DataTexture {
-  const fallback = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, THREE.RGBAFormat);
+  const fallback = new THREE.DataTexture(new Uint8Array([255, 0, 0, 255]), 1, 1, THREE.RGBAFormat);
   fallback.colorSpace = THREE.NoColorSpace;
   fallback.wrapS = THREE.ClampToEdgeWrapping;
   fallback.wrapT = THREE.ClampToEdgeWrapping;
@@ -374,10 +424,12 @@ function buildPawPads(opts: PawStampOptions): PawPads {
 }
 
 // Paint one paw mask into the (ox, oy) tile of the given context.
+// R = depression mask, G = forward toe/claw mound mask, B unused, A opaque.
 function paintPaw(ctx: StampContext, ox: number, oy: number, size: number, opts: PawStampOptions): boolean {
   const edgeCollapse = clamp01(finiteOr(opts.edgeCollapse, 0.0));
   const seed = finiteOr(opts.seed, 0.0);
   const { central, toes, claws } = buildPawPads(opts);
+  const mounds = buildMoundPads(toes, claws);
 
   let image: ImageData;
   try {
@@ -409,10 +461,17 @@ function paintPaw(ctx: StampContext, ox: number, oy: number, size: number, opts:
         mask = Math.max(mask, sampleEllipsePad(u, v, pad, edgeCollapse, seed));
       }
 
-      const out = Math.round(clamp01(mask) * 255.0);
-      data[offset] = out;
-      data[offset + 1] = out;
-      data[offset + 2] = out;
+      let mound = 0.0;
+      for (const pad of mounds) {
+        mound = Math.max(mound, sampleEllipsePad(u, v, pad, edgeCollapse * 0.65, seed));
+      }
+
+      const maskPixel = clamp01(mask);
+      const moundPixel = clamp01(mound) * clamp(1.0 - maskPixel * 1.3, 0.0, 1.0);
+
+      data[offset] = Math.round(maskPixel * 255.0);
+      data[offset + 1] = Math.round(clamp01(moundPixel) * 255.0);
+      data[offset + 2] = 0;
       data[offset + 3] = 255;
       offset += 4;
     }
