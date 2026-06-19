@@ -4,6 +4,18 @@ import { FootprintType } from './footprintTypes';
 
 export const MAX_FOOTPRINTS = 15;
 
+// How long a fresh print takes to fully "press" into the sand.
+const APPEAR_DURATION = 0.18;
+
+// Ease-out-back: rises past 1.0 then settles, giving the print a small
+// stamping "pop" as it pushes into the sand.
+function easeOutBack(t: number): number {
+  const c1 = 1.70158;
+  const c3 = c1 + 1;
+  const p = t - 1;
+  return 1 + c3 * p * p * p + c1 * p * p;
+}
+
 export interface Footprint {
   active: boolean;
   pos: THREE.Vector2;
@@ -98,6 +110,13 @@ export class FootprintSystem {
     this.stride = size * 0.62;
     this.lateralOffset = size * 0.17;
     this.baseScale = size * 0.5;
+  }
+
+  // Forget the previous drag so a new gesture does not spawn prints along the
+  // line connecting the old end point to the new start point.
+  resetTrail(): void {
+    this.trailInitialized = false;
+    this.trailDistanceSinceSpawn = 0;
   }
 
   clear(): void {
@@ -205,7 +224,8 @@ export class FootprintSystem {
       fp.ageNormalized = THREE.MathUtils.clamp(fp.age * decaySpeed * 0.23, 0, 1);
 
       const decay = Math.exp(-fp.age * decaySpeed * 0.9);
-      fp.depthScale = depthBase * decay;
+      const appear = easeOutBack(THREE.MathUtils.clamp(fp.age / APPEAR_DURATION, 0, 1));
+      fp.depthScale = depthBase * decay * appear;
 
       const qAge = Math.round(fp.ageNormalized * 255);
       const qDepth = Math.round(THREE.MathUtils.clamp(fp.depthScale, 0, 1) * 255);
@@ -301,17 +321,19 @@ export class FootprintSystem {
       .addScaledVector(dir, alongJitter)
       .addScaledVector(this.perp, side * this.lateralOffset + acrossJitter);
 
-    fp.yaw = Math.atan2(dir.y, dir.x) + Math.PI * 0.5 + angleJitter;
+    // Toes point along the direction of travel (was reversed: +PI/2 pointed
+    // the paw backwards relative to the drag).
+    fp.yaw = Math.atan2(dir.y, dir.x) - Math.PI * 0.5 + angleJitter;
     fp.scale = this.baseScale * scaleJitter;
     fp.side = side;
     fp.seed = this.random01() * 1000.0;
     fp.bornTime = performance.now() * 0.001;
     fp.age = 0;
     fp.ageNormalized = 0;
-    fp.depthScale = 1.0;
+    fp.depthScale = 0.0;
 
     this.quantizedAge[this.writeIndex] = 0;
-    this.quantizedDepth[this.writeIndex] = 255;
+    this.quantizedDepth[this.writeIndex] = 0;
 
     this.writeIndex = (this.writeIndex + 1) % MAX_FOOTPRINTS;
     this._revision += 1;
