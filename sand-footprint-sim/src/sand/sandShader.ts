@@ -244,7 +244,7 @@ export function createSandMaterial(initialParams: SandParams): SandMaterialBundl
     noiseStrength: new THREE.Uniform(initialParams.noiseStrength),
     washFront: new THREE.Uniform(1e6),
     washProgress: new THREE.Uniform(0),
-    displacementScale: new THREE.Uniform(initialParams.footprintDepth * 0.45)
+    displacementScale: new THREE.Uniform(initialParams.footprintDepth * 0.62)
   };
 
   const fallbackHeightData = new Float32Array([0, 0, 0, 1]);
@@ -377,11 +377,21 @@ float hD = sampleSandHeight(vSandUv - vec2(0.0, sandHeightTexel.y));
 float hU = sampleSandHeight(vSandUv + vec2(0.0, sandHeightTexel.y));
 vec3 macroNormalObject = normalize(vec3((hL - hR) * displacementScale * 8.5, 1.0, (hU - hD) * displacementScale * 8.5));
 vec3 macroNormalView = normalize((modelViewMatrix * vec4(macroNormalObject, 0.0)).xyz);
-normal = normalize(mix(normal, macroNormalView, 0.72));`
+normal = normalize(mix(normal, macroNormalView, 0.82));`
       )
       .replace(
         '#include <map_fragment>',
         `#include <map_fragment>
+// Large-scale natural colour variation across the beach: broad patches of
+// whiter and browner sand. Driven by world position (not the tiled texture
+// uv), so the patches never repeat with the texture tiling.
+float sandPatch = smoothstep(0.30, 0.70, sandFbm(vSandWorld * 0.16 + vec2(13.0, 7.0)));
+vec3 sandWhite = diffuseColor.rgb * vec3(1.11, 1.10, 1.07);
+vec3 sandBrown = diffuseColor.rgb * vec3(0.78, 0.64, 0.45);
+diffuseColor.rgb = mix(sandBrown, sandWhite, sandPatch);
+float sandMottle = sandFbm(vSandWorld * 0.52 + vec2(-4.0, 9.0));
+diffuseColor.rgb *= 1.0 + (sandMottle - 0.5) * 0.12;
+
 float sandWashEdge = smoothstep(washFront - 0.38, washFront + 0.38, vSandWorld.y) * clamp(washProgress * 1.45, 0.0, 1.0);
 float sandDryBack = smoothstep(0.58, 1.0, washProgress);
 float sandFrontBand = 1.0 - smoothstep(0.035, 0.46, abs(vSandWorld.y - washFront));
@@ -404,7 +414,7 @@ float sandRimWorld = max(0.0, sandShadeCenter) * displacementScale * sandWashRem
 float sandConvexWorld = max(0.0, sandShadeCenter - sandShadeAverage) * displacementScale * sandWashRemaining;
 
 float sandDepthAo = smoothstep(0.0015, 0.034, sandDepressWorld * 0.9 + sandConcavityWorld * 2.2);
-diffuseColor.rgb *= 1.0 - sandDepthAo * 0.16;
+diffuseColor.rgb *= 1.0 - sandDepthAo * 0.24;
 
 vec2 sandRimGradient = vec2(sandShadeL - sandShadeR, sandShadeD - sandShadeU);
 float sandRimSlope = length(sandRimGradient);
@@ -455,7 +465,7 @@ roughnessFactor = clamp(roughnessFactor, 0.16, 0.96);`
       );
   };
 
-  material.customProgramCacheKey = (): string => 'sand-heightfield-v5-fragment-mvmatrix-fix';
+  material.customProgramCacheKey = (): string => 'sand-heightfield-v6-color-depth';
 
   const dryColor = new THREE.Color('#f1ddb4');
   const wetColor = new THREE.Color('#b9a17a');
@@ -472,7 +482,7 @@ roughnessFactor = clamp(roughnessFactor, 0.16, 0.96);`
     uniforms.decaySpeed.value = params.decaySpeed;
     uniforms.darkeningStrength.value = params.darkeningStrength;
     uniforms.noiseStrength.value = params.noiseStrength;
-    uniforms.displacementScale.value = params.footprintDepth * 0.45;
+    uniforms.displacementScale.value = params.footprintDepth * 0.62;
 
     const moisture = THREE.MathUtils.clamp(params.moisture, 0, 1);
     material.color.copy(dryColor).lerp(wetColor, moisture * 0.72);

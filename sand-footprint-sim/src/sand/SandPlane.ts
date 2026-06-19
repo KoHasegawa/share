@@ -118,7 +118,7 @@ export class SandPlane {
   private lastBodyWeight = Number.NaN;
   private lastFootDepth = Number.NaN;
 
-  constructor(renderer: RendererLike, initialParams: SandParams, size = 40, segments = 256) {
+  constructor(renderer: RendererLike, initialParams: SandParams, size = 40, segments = 384) {
     this.renderer = renderer;
     this.planeSize = size;
 
@@ -162,7 +162,7 @@ export class SandPlane {
         uPlaneSize: { value: this.planeSize },
         uFootA: { value: this.stampA },
         uFootB: { value: this.stampB },
-        uRimHeight: { value: initialParams.rimHeight * 0.7 },
+        uRimHeight: { value: initialParams.rimHeight * 0.92 },
         uCohesion: { value: initialParams.cohesion },
         uEdgeCollapse: { value: initialParams.edgeCollapse },
         uBodyWeight: { value: initialParams.bodyWeight },
@@ -289,7 +289,7 @@ void main() {
   update(_dt: number, params: SandParams): void {
     this.materialBundle.updateFromParams(params);
 
-    const rim = params.rimHeight * 0.7;
+    const rim = params.rimHeight * 0.92;
     this.composeMaterial.uniforms.uRimHeight.value = rim;
     this.composeMaterial.uniforms.uCohesion.value = params.cohesion;
     this.composeMaterial.uniforms.uEdgeCollapse.value = params.edgeCollapse;
