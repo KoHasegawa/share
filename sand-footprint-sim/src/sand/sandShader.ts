@@ -49,37 +49,47 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
   return smoothstep01(clamp01((x - edge0) / (edge1 - edge0)));
 }
 
-function valueNoise2(x: number, y: number): number {
+function periodicHash(ix: number, iy: number, period: number): number {
+  const px = ((ix % period) + period) % period;
+  const py = ((iy % period) + period) % period;
+  return hash2(px, py);
+}
+
+// Seamless value noise: the lattice wraps every `period` cells, so sampling the
+// unit square tiles exactly with no discontinuity at the edges.
+function periodicValueNoise(x: number, y: number, period: number): number {
   const x0 = Math.floor(x);
   const y0 = Math.floor(y);
-  const x1 = x0 + 1;
-  const y1 = y0 + 1;
 
   const fx = x - x0;
   const fy = y - y0;
   const ux = smoothstep01(fx);
   const uy = smoothstep01(fy);
 
-  const n00 = hash2(x0, y0);
-  const n10 = hash2(x1, y0);
-  const n01 = hash2(x0, y1);
-  const n11 = hash2(x1, y1);
+  const n00 = periodicHash(x0, y0, period);
+  const n10 = periodicHash(x0 + 1, y0, period);
+  const n01 = periodicHash(x0, y0 + 1, period);
+  const n11 = periodicHash(x0 + 1, y0 + 1, period);
 
   const nx0 = n00 + (n10 - n00) * ux;
   const nx1 = n01 + (n11 - n01) * ux;
   return nx0 + (nx1 - nx0) * uy;
 }
 
-function fbm(x: number, y: number, octaves: number): number {
+// Tileable fractal noise over the unit square. `baseFreq` must be an integer so
+// every octave stays periodic and the generated maps remain seamless when the
+// texture repeats across the sand plane. Integer offsets shift the pattern
+// without breaking the wrap.
+function tileFbm(u: number, v: number, baseFreq: number, octaves: number, offX = 0, offY = 0): number {
   let value = 0;
   let amplitude = 0.5;
-  let frequency = 1.0;
+  let frequency = baseFreq;
   let totalAmplitude = 0;
 
   for (let i = 0; i < octaves; i += 1) {
-    value += valueNoise2(x * frequency, y * frequency) * amplitude;
+    value += periodicValueNoise(u * frequency + offX, v * frequency + offY, frequency) * amplitude;
     totalAmplitude += amplitude;
-    frequency *= 2.03;
+    frequency *= 2;
     amplitude *= 0.5;
   }
 
@@ -96,10 +106,13 @@ function buildSandMaps(size = 256): {
   const roughnessData = new Uint8Array(size * size * 4);
   const height = new Float32Array(size * size);
 
-  const duneScale = 2.2;
-  const lowFreqScale = 4.2;
-  const midFreqScale = 15.0;
-  const grainFreqScale = 58.0;
+  // Integer base frequencies so each octave tiles exactly across the unit
+  // square -> no repeating rectangular seams when the texture is mapped many
+  // times across the plane.
+  const duneFreq = 2;
+  const lowFreq = 4;
+  const midFreq = 16;
+  const grainFreq = 56;
 
   for (let y = 0; y < size; y += 1) {
     for (let x = 0; x < size; x += 1) {
@@ -107,18 +120,21 @@ function buildSandMaps(size = 256): {
       const u = x / size;
       const v = y / size;
 
-      const dune = fbm(u * duneScale + 7.3, v * duneScale - 2.1, 4);
-      const low = fbm(u * lowFreqScale, v * lowFreqScale, 4);
-      const mid = fbm(u * midFreqScale + 19.1, v * midFreqScale + 3.7, 3);
-      const grain = fbm(u * grainFreqScale, v * grainFreqScale, 2);
+      const dune = tileFbm(u, v, duneFreq, 3, 7, -2);
+      const low = tileFbm(u, v, lowFreq, 3, 19, 3);
+      const mid = tileFbm(u, v, midFreq, 3, 11, 23);
+      const grain = tileFbm(u, v, grainFreq, 2, 5, 13);
 
-      const h = dune * 0.34 + low * 0.34 + mid * 0.2 + grain * 0.12;
+      const h = dune * 0.22 + low * 0.28 + mid * 0.26 + grain * 0.24;
       height[idx] = h;
 
-      const tonal = (dune - 0.5) * 0.13 + (low - 0.5) * 0.1 + (mid - 0.5) * 0.05 + (grain - 0.5) * 0.025;
-      const ochre = (fbm(u * 8.7 + 31.0, v * 8.7 - 4.0, 2) - 0.5) * 0.055;
-      const shell = smoothstep(0.72, 0.96, grain) * 0.035;
-      const mineral = smoothstep(0.982, 1.0, hash2(x + 17.0, y - 11.0)) * 0.055;
+      // Keep colour variation mostly mid/high frequency. The strong
+      // low-frequency tonal swings used to read as repeating blocky patches
+      // once the (non-seamless) tile was repeated across the surface.
+      const tonal = (dune - 0.5) * 0.04 + (low - 0.5) * 0.04 + (mid - 0.5) * 0.05 + (grain - 0.5) * 0.03;
+      const ochre = (tileFbm(u, v, 9, 2, 31, -4) - 0.5) * 0.04;
+      const shell = smoothstep(0.74, 0.96, grain) * 0.03;
+      const mineral = smoothstep(0.985, 1.0, hash2(x + 17.0, y - 11.0)) * 0.05;
 
       const r = clamp01(0.84 + tonal + ochre * 1.25 + shell - mineral * 0.45);
       const g = clamp01(0.75 + tonal * 0.82 + ochre * 0.72 + shell * 0.82 - mineral * 0.62);
