@@ -111,6 +111,21 @@ function createCanvas(size: number): StampCanvas {
   throw new Error('No canvas implementation available');
 }
 
+function createCanvasRect(width: number, height: number): StampCanvas {
+  if (typeof document !== 'undefined') {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
+  }
+
+  if (typeof OffscreenCanvas !== 'undefined') {
+    return new OffscreenCanvas(width, height);
+  }
+
+  throw new Error('No canvas implementation available');
+}
+
 function get2DContext(canvas: StampCanvas): StampContext | null {
   return canvas.getContext('2d') as StampContext | null;
 }
@@ -173,49 +188,60 @@ function makeFallbackTexture(): THREE.DataTexture {
   return fallback;
 }
 
-export function generatePawStampTexture(opts: PawStampOptions): THREE.Texture {
-  const requestedSize = Math.floor(finiteOr(opts.size, 128));
-  const size = Math.max(32, requestedSize);
+export interface PawStampAtlas {
+  texture: THREE.Texture;
+  cols: number;
+  rows: number;
+  count: number;
+  tileSize: number;
+}
+
+interface PawPads {
+  central: EllipsePad[];
+  toes: EllipsePad[];
+  claws: EllipsePad[];
+}
+
+// Build a single paw's pad layout. Most variation is now driven by `seed`
+// independently of edgeCollapse, so different seeds produce visibly distinct
+// paws (toe spread, pad size, asymmetry). The metacarpal pad sits close behind
+// the toes so the print reads as an anatomically tight dog paw rather than a
+// scattered cluster.
+function buildPawPads(opts: PawStampOptions): PawPads {
   const edgeCollapse = clamp01(finiteOr(opts.edgeCollapse, 0.0));
   const claw = clamp01(finiteOr(opts.claw, 0.0));
   const seed = finiteOr(opts.seed, 0.0);
 
-  let canvas: StampCanvas;
-  try {
-    canvas = createCanvas(size);
-  } catch {
-    return makeFallbackTexture();
-  }
+  const jitter = 0.012 + edgeCollapse * 0.006;
+  const toeJitter = 0.016 + edgeCollapse * 0.006;
 
-  const ctx = get2DContext(canvas);
-  if (!ctx) {
-    return makeFallbackTexture();
-  }
+  // Per-paw character (always on, not gated by edgeCollapse).
+  const toeSpread = 1.0 + signedHash(seed, 100.0) * 0.1;
+  const padSize = 1.0 + signedHash(seed, 101.0) * 0.08;
+  const padToeGap = signedHash(seed, 102.0) * 0.014;
 
-  const centralJitter = edgeCollapse * 0.006;
-  const toeJitter = edgeCollapse * 0.007;
-  const centralX = 0.5 + signedHash(seed, 1.0) * centralJitter;
-  const centralY = 0.618 + signedHash(seed, 2.0) * centralJitter;
+  const centralY = 0.6 + signedHash(seed, 2.0) * jitter;
+  const centralX = 0.5 + signedHash(seed, 1.0) * jitter;
 
-  const centralPads: EllipsePad[] = [
+  const central: EllipsePad[] = [
     {
       cx: centralX,
       cy: centralY + 0.02,
-      rx: 0.137,
-      ry: 0.121,
-      rotation: 0.0,
+      rx: 0.137 * padSize,
+      ry: 0.121 * padSize,
+      rotation: signedHash(seed, 80.0) * 0.05,
       amplitude: 0.92,
-      exponent: 1.10,
+      exponent: 1.1,
       seedOffset: 1.0,
       roughness: 0.21,
-      crumble: 0.10
+      crumble: 0.1
     },
     {
-      cx: centralX - 0.058 + signedHash(seed, 3.0) * centralJitter,
-      cy: centralY - 0.038 + signedHash(seed, 4.0) * centralJitter,
-      rx: 0.088,
-      ry: 0.074,
-      rotation: -0.22,
+      cx: centralX - 0.058 + signedHash(seed, 3.0) * jitter,
+      cy: centralY - 0.038 + signedHash(seed, 4.0) * jitter,
+      rx: 0.088 * padSize,
+      ry: 0.074 * padSize,
+      rotation: -0.22 + signedHash(seed, 81.0) * 0.06,
       amplitude: 0.82,
       exponent: 1.18,
       seedOffset: 2.0,
@@ -223,11 +249,11 @@ export function generatePawStampTexture(opts: PawStampOptions): THREE.Texture {
       crumble: 0.12
     },
     {
-      cx: centralX + 0.058 + signedHash(seed, 5.0) * centralJitter,
-      cy: centralY - 0.038 + signedHash(seed, 6.0) * centralJitter,
-      rx: 0.088,
-      ry: 0.074,
-      rotation: 0.22,
+      cx: centralX + 0.058 + signedHash(seed, 5.0) * jitter,
+      cy: centralY - 0.038 + signedHash(seed, 6.0) * jitter,
+      rx: 0.088 * padSize,
+      ry: 0.074 * padSize,
+      rotation: 0.22 + signedHash(seed, 82.0) * 0.06,
       amplitude: 0.82,
       exponent: 1.18,
       seedOffset: 3.0,
@@ -235,22 +261,22 @@ export function generatePawStampTexture(opts: PawStampOptions): THREE.Texture {
       crumble: 0.12
     },
     {
-      cx: centralX,
-      cy: centralY + 0.073 + signedHash(seed, 7.0) * centralJitter,
-      rx: 0.081,
-      ry: 0.077,
-      rotation: 0.0,
+      cx: centralX + signedHash(seed, 83.0) * 0.012,
+      cy: centralY + 0.05 + signedHash(seed, 7.0) * jitter,
+      rx: 0.081 * padSize,
+      ry: 0.077 * padSize,
+      rotation: signedHash(seed, 84.0) * 0.08,
       amplitude: 0.76,
       exponent: 1.22,
       seedOffset: 4.0,
-      roughness: 0.20,
-      crumble: 0.10
+      roughness: 0.2,
+      crumble: 0.1
     },
     {
       cx: centralX,
       cy: centralY - 0.002,
-      rx: 0.094,
-      ry: 0.083,
+      rx: 0.094 * padSize,
+      ry: 0.083 * padSize,
       rotation: 0.0,
       amplitude: 0.45,
       exponent: 1.35,
@@ -260,28 +286,30 @@ export function generatePawStampTexture(opts: PawStampOptions): THREE.Texture {
     }
   ];
 
+  // Toes pulled down close to the metacarpal pad (was 0.335-0.384).
   const toeSpecs: ToeSpec[] = [
-    { x: 0.354, y: 0.384, rotation: -0.36, scale: 0.95, amplitude: 0.75 },
-    { x: 0.452, y: 0.335, rotation: -0.12, scale: 1.04, amplitude: 0.83 },
-    { x: 0.548, y: 0.335, rotation: 0.12, scale: 1.03, amplitude: 0.82 },
-    { x: 0.646, y: 0.384, rotation: 0.36, scale: 0.96, amplitude: 0.75 }
+    { x: 0.354, y: 0.46, rotation: -0.36, scale: 0.95, amplitude: 0.75 },
+    { x: 0.452, y: 0.425, rotation: -0.12, scale: 1.04, amplitude: 0.83 },
+    { x: 0.548, y: 0.425, rotation: 0.12, scale: 1.03, amplitude: 0.82 },
+    { x: 0.646, y: 0.46, rotation: 0.36, scale: 0.96, amplitude: 0.75 }
   ];
 
-  const toePads: EllipsePad[] = [];
-  const clawPads: EllipsePad[] = [];
+  const toes: EllipsePad[] = [];
+  const claws: EllipsePad[] = [];
   let toeIndex = 0;
 
   for (const spec of toeSpecs) {
-    const randomScale = 1.0 + signedHash(seed, 20.0 + toeIndex) * 0.025;
+    const randomScale = 1.0 + signedHash(seed, 20.0 + toeIndex) * 0.1;
     const scale = spec.scale * randomScale;
-    const rotation = spec.rotation + signedHash(seed, 30.0 + toeIndex) * edgeCollapse * 0.035;
+    const rotation = spec.rotation + signedHash(seed, 30.0 + toeIndex) * 0.08;
     const rx = 0.052 * scale;
     const ry = 0.076 * scale;
-    const toeX = spec.x + signedHash(seed, 40.0 + toeIndex) * toeJitter;
-    const toeY = spec.y + signedHash(seed, 50.0 + toeIndex) * toeJitter;
-    const amplitude = clamp(spec.amplitude + signedHash(seed, 60.0 + toeIndex) * 0.025, 0.68, 0.86);
+    const spreadX = 0.5 + (spec.x - 0.5) * toeSpread;
+    const toeX = spreadX + signedHash(seed, 40.0 + toeIndex) * toeJitter;
+    const toeY = spec.y + padToeGap + signedHash(seed, 50.0 + toeIndex) * toeJitter;
+    const amplitude = clamp(spec.amplitude + signedHash(seed, 60.0 + toeIndex) * 0.04, 0.66, 0.88);
 
-    toePads.push({
+    toes.push({
       cx: toeX,
       cy: toeY,
       rx,
@@ -297,9 +325,9 @@ export function generatePawStampTexture(opts: PawStampOptions): THREE.Texture {
     if (claw > 0.01) {
       const forwardX = Math.sin(rotation);
       const forwardY = -Math.cos(rotation);
-      const clawDistance = ry + 0.033 + claw * 0.01;
+      const clawDistance = ry + 0.03 + claw * 0.01;
 
-      clawPads.push({
+      claws.push({
         cx: toeX + forwardX * clawDistance,
         cy: toeY + forwardY * clawDistance,
         rx: 0.0105 * (0.9 + claw * 0.25) * scale,
@@ -309,18 +337,27 @@ export function generatePawStampTexture(opts: PawStampOptions): THREE.Texture {
         exponent: 1.35,
         seedOffset: 40.0 + toeIndex,
         roughness: 0.18,
-        crumble: 0.10
+        crumble: 0.1
       });
     }
 
     toeIndex += 1;
   }
 
+  return { central, toes, claws };
+}
+
+// Paint one paw mask into the (ox, oy) tile of the given context.
+function paintPaw(ctx: StampContext, ox: number, oy: number, size: number, opts: PawStampOptions): boolean {
+  const edgeCollapse = clamp01(finiteOr(opts.edgeCollapse, 0.0));
+  const seed = finiteOr(opts.seed, 0.0);
+  const { central, toes, claws } = buildPawPads(opts);
+
   let image: ImageData;
   try {
     image = ctx.createImageData(size, size);
   } catch {
-    return makeFallbackTexture();
+    return false;
   }
 
   const data = image.data;
@@ -333,17 +370,16 @@ export function generatePawStampTexture(opts: PawStampOptions): THREE.Texture {
     for (let x = 0; x < size; x += 1) {
       const u = (x + 0.5) * invSize;
 
-      let central = 0.0;
-      for (const pad of centralPads) {
-        central = screenBlend(central, sampleEllipsePad(u, v, pad, edgeCollapse, seed));
+      let mask = 0.0;
+      for (const pad of central) {
+        mask = screenBlend(mask, sampleEllipsePad(u, v, pad, edgeCollapse, seed));
       }
 
-      let mask = central;
-      for (const pad of toePads) {
+      for (const pad of toes) {
         mask = Math.max(mask, sampleEllipsePad(u, v, pad, edgeCollapse, seed));
       }
 
-      for (const pad of clawPads) {
+      for (const pad of claws) {
         mask = Math.max(mask, sampleEllipsePad(u, v, pad, edgeCollapse, seed));
       }
 
@@ -357,8 +393,26 @@ export function generatePawStampTexture(opts: PawStampOptions): THREE.Texture {
   }
 
   try {
-    ctx.putImageData(image, 0, 0);
+    ctx.putImageData(image, ox, oy);
   } catch {
+    return false;
+  }
+
+  return true;
+}
+
+export function generatePawStampTexture(opts: PawStampOptions): THREE.Texture {
+  const size = Math.max(32, Math.floor(finiteOr(opts.size, 128)));
+
+  let canvas: StampCanvas;
+  try {
+    canvas = createCanvas(size);
+  } catch {
+    return makeFallbackTexture();
+  }
+
+  const ctx = get2DContext(canvas);
+  if (!ctx || !paintPaw(ctx, 0, 0, size, { ...opts, size })) {
     return makeFallbackTexture();
   }
 
@@ -372,4 +426,47 @@ export function generatePawStampTexture(opts: PawStampOptions): THREE.Texture {
   texture.needsUpdate = true;
 
   return texture;
+}
+
+// Pre-render `cols * rows` distinct paw variants into a single texture atlas.
+// At draw time each footprint picks a tile by its seed, giving shape variety
+// with only one texture bind/fetch (mobile friendly). Mipmaps are disabled so
+// neighbouring tiles never bleed into each other.
+export function generatePawStampAtlas(opts: PawStampOptions, cols = 3, rows = 2): PawStampAtlas {
+  const tile = Math.max(32, Math.floor(finiteOr(opts.size, 256)));
+  const count = Math.max(1, cols * rows);
+
+  const fallback = (): PawStampAtlas => ({ texture: makeFallbackTexture(), cols: 1, rows: 1, count: 1, tileSize: 1 });
+
+  let canvas: StampCanvas;
+  try {
+    canvas = createCanvasRect(tile * cols, tile * rows);
+  } catch {
+    return fallback();
+  }
+
+  const ctx = get2DContext(canvas);
+  if (!ctx) {
+    return fallback();
+  }
+
+  for (let i = 0; i < count; i += 1) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const variantSeed = finiteOr(opts.seed, 0.0) + i * 131.71 + 7.3;
+    if (!paintPaw(ctx, col * tile, row * tile, tile, { ...opts, size: tile, seed: variantSeed })) {
+      return fallback();
+    }
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+
+  return { texture, cols, rows, count, tileSize: tile };
 }

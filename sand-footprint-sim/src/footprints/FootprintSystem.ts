@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { SandParams } from '../sand/sandParams';
 import { FootprintType } from './footprintTypes';
+import { PawStampAtlas } from './pawStamp';
 
 export const MAX_FOOTPRINTS = 15;
 
@@ -69,8 +70,7 @@ export class FootprintSystem {
   private readonly perp = new THREE.Vector2();
 
   private randomState = 0x6d2b79f5;
-  private stampTexture: THREE.Texture | null = null;
-  private stampEdgeCollapseQuantized = -1;
+  private stampAtlas: PawStampAtlas | null = null;
 
   private _revision = 1;
 
@@ -273,32 +273,26 @@ export class FootprintSystem {
     return this.compositeData;
   }
 
-  getStampTexture(edgeCollapse: number): THREE.Texture {
-    const qEdge = Math.round(THREE.MathUtils.clamp(edgeCollapse, 0, 1) * 64);
-    if (this.stampTexture && qEdge === this.stampEdgeCollapseQuantized) {
-      return this.stampTexture;
+  // Built once: a fixed atlas of paw variants. Dynamic edge crumbling is
+  // applied per-print in the compose shader, so the atlas does not need to be
+  // regenerated when sand parameters change (no rebuild stutter on mobile).
+  getStampAtlas(): PawStampAtlas {
+    if (!this.stampAtlas) {
+      this.stampAtlas = this.type.generateStampAtlas({
+        size: 256,
+        edgeCollapse: 0.32,
+        seed: 1337.0,
+        claw: 0.4
+      });
     }
 
-    if (this.stampTexture) {
-      this.stampTexture.dispose();
-      this.stampTexture = null;
-    }
-
-    this.stampEdgeCollapseQuantized = qEdge;
-    this.stampTexture = this.type.generateStampTexture({
-      size: 256,
-      edgeCollapse: qEdge / 64,
-      seed: 1337.0,
-      claw: 0.35 + this.params.hardness * 0.5
-    });
-
-    return this.stampTexture;
+    return this.stampAtlas;
   }
 
   dispose(): void {
-    if (this.stampTexture) {
-      this.stampTexture.dispose();
-      this.stampTexture = null;
+    if (this.stampAtlas) {
+      this.stampAtlas.texture.dispose();
+      this.stampAtlas = null;
     }
   }
 
@@ -309,8 +303,8 @@ export class FootprintSystem {
     const side = this.nextSide;
     this.nextSide = side === -1 ? 1 : -1;
 
-    const angleJitter = (this.random01() * 2 - 1) * 0.12;
-    const scaleJitter = 1.0 + (this.random01() * 2 - 1) * 0.06;
+    const angleJitter = (this.random01() * 2 - 1) * 0.14;
+    const scaleJitter = 1.0 + (this.random01() * 2 - 1) * 0.1;
 
     const alongJitter = (this.random01() * 2 - 1) * this.stride * 0.08;
     const acrossJitter = (this.random01() * 2 - 1) * this.lateralOffset * 0.28;
