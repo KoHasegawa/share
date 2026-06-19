@@ -261,16 +261,40 @@ function buildPawPads(opts: PawStampOptions): PawPads {
       crumble: 0.12
     },
     {
-      cx: centralX + signedHash(seed, 83.0) * 0.012,
-      cy: centralY + 0.05 + signedHash(seed, 7.0) * jitter,
-      rx: 0.081 * padSize,
-      ry: 0.077 * padSize,
+      cx: centralX + signedHash(seed, 83.0) * jitter,
+      cy: centralY + 0.066 + signedHash(seed, 7.0) * jitter,
+      rx: 0.052 * padSize,
+      ry: 0.058 * padSize,
       rotation: signedHash(seed, 84.0) * 0.08,
-      amplitude: 0.76,
-      exponent: 1.22,
+      amplitude: 0.72,
+      exponent: 1.25,
       seedOffset: 4.0,
-      roughness: 0.2,
+      roughness: 0.21,
       crumble: 0.1
+    },
+    {
+      cx: centralX - 0.06 + signedHash(seed, 85.0) * jitter,
+      cy: centralY + 0.052 + signedHash(seed, 8.0) * jitter,
+      rx: 0.046 * padSize,
+      ry: 0.052 * padSize,
+      rotation: -0.25 + signedHash(seed, 86.0) * 0.06,
+      amplitude: 0.68,
+      exponent: 1.28,
+      seedOffset: 4.7,
+      roughness: 0.22,
+      crumble: 0.11
+    },
+    {
+      cx: centralX + 0.06 + signedHash(seed, 87.0) * jitter,
+      cy: centralY + 0.052 + signedHash(seed, 9.0) * jitter,
+      rx: 0.046 * padSize,
+      ry: 0.052 * padSize,
+      rotation: 0.25 + signedHash(seed, 88.0) * 0.06,
+      amplitude: 0.68,
+      exponent: 1.28,
+      seedOffset: 5.4,
+      roughness: 0.22,
+      crumble: 0.11
     },
     {
       cx: centralX,
@@ -293,6 +317,7 @@ function buildPawPads(opts: PawStampOptions): PawPads {
     { x: 0.548, y: 0.425, rotation: 0.12, scale: 1.03, amplitude: 0.82 },
     { x: 0.646, y: 0.46, rotation: 0.36, scale: 0.96, amplitude: 0.75 }
   ];
+  const clawSplay = [-0.18, -0.06, 0.06, 0.18];
 
   const toes: EllipsePad[] = [];
   const claws: EllipsePad[] = [];
@@ -323,16 +348,17 @@ function buildPawPads(opts: PawStampOptions): PawPads {
     });
 
     if (claw > 0.01) {
-      const forwardX = Math.sin(rotation);
-      const forwardY = -Math.cos(rotation);
-      const clawDistance = ry + 0.03 + claw * 0.01;
+      const clawRot = rotation + clawSplay[toeIndex];
+      const forwardX = Math.sin(clawRot);
+      const forwardY = -Math.cos(clawRot);
+      const clawDistance = ry + 0.034 + claw * 0.012;
 
       claws.push({
         cx: toeX + forwardX * clawDistance,
         cy: toeY + forwardY * clawDistance,
         rx: 0.0105 * (0.9 + claw * 0.25) * scale,
-        ry: 0.026 * (0.9 + claw * 0.35) * scale,
-        rotation,
+        ry: 0.03 * (0.9 + claw * 0.35) * scale,
+        rotation: clawRot,
         amplitude: claw * (0.13 + hash3(seed, 70.0 + toeIndex, 1.0) * 0.05),
         exponent: 1.35,
         seedOffset: 40.0 + toeIndex,

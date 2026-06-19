@@ -60,6 +60,8 @@ export class FootprintSystem {
   private stride: number;
   private lateralOffset: number;
   private baseScale: number;
+  private nextStride = 0;
+  private swayOffset = 0;
 
   private trailInitialized = false;
   private readonly trailLastPos = new THREE.Vector2();
@@ -82,6 +84,7 @@ export class FootprintSystem {
     this.stride = size * 0.62;
     this.lateralOffset = size * 0.17;
     this.baseScale = size * 0.5;
+    this.nextStride = this.stride;
 
     for (let i = 0; i < MAX_FOOTPRINTS; i += 1) {
       this.buffer[i] = {
@@ -110,6 +113,7 @@ export class FootprintSystem {
     this.stride = size * 0.62;
     this.lateralOffset = size * 0.17;
     this.baseScale = size * 0.5;
+    this.nextStride = this.stride;
   }
 
   // Forget the previous drag so a new gesture does not spawn prints along the
@@ -133,6 +137,8 @@ export class FootprintSystem {
     this.nextSide = -1;
     this.trailInitialized = false;
     this.trailDistanceSinceSpawn = 0;
+    this.swayOffset = 0;
+    this.nextStride = this.stride;
     this.compositeCount = 0;
     this.compositeData.count = 0;
     this.zeroCompositeRange(0);
@@ -176,7 +182,7 @@ export class FootprintSystem {
     if (!this.trailInitialized) {
       this.trailInitialized = true;
       this.trailLastPos.copy(pos);
-      this.trailDistanceSinceSpawn = this.stride;
+      this.trailDistanceSinceSpawn = this.nextStride;
     }
 
     this.spawnDir.copy(dir).normalize();
@@ -188,16 +194,21 @@ export class FootprintSystem {
 
     let consumed = 0;
     while (consumed < segmentLen) {
-      const remainingToSpawn = this.stride - this.trailDistanceSinceSpawn;
+      const remainingToSpawn = this.nextStride - this.trailDistanceSinceSpawn;
       const step = Math.min(remainingToSpawn, segmentLen - consumed);
       consumed += step;
       this.trailDistanceSinceSpawn += step;
 
-      if (this.trailDistanceSinceSpawn >= this.stride - 1e-6) {
+      if (this.trailDistanceSinceSpawn >= this.nextStride - 1e-6) {
         const t = consumed / segmentLen;
         this.spawnPos.lerpVectors(this.trailLastPos, pos, t);
         this.spawnFootprint(this.spawnPos, this.spawnDir);
         this.trailDistanceSinceSpawn = 0;
+        this.nextStride = THREE.MathUtils.clamp(
+          this.stride * (1 + this.gauss() * 0.18),
+          this.stride * 0.7,
+          this.stride * 1.35
+        );
       }
     }
 
@@ -303,21 +314,27 @@ export class FootprintSystem {
     const side = this.nextSide;
     this.nextSide = side === -1 ? 1 : -1;
 
-    const angleJitter = (this.random01() * 2 - 1) * 0.14;
-    const scaleJitter = 1.0 + (this.random01() * 2 - 1) * 0.1;
+    this.swayOffset = THREE.MathUtils.clamp(
+      this.swayOffset + this.gauss() * this.lateralOffset * 0.22,
+      -this.lateralOffset * 0.9,
+      this.lateralOffset * 0.9
+    );
 
-    const alongJitter = (this.random01() * 2 - 1) * this.stride * 0.08;
-    const acrossJitter = (this.random01() * 2 - 1) * this.lateralOffset * 0.28;
+    const angleJitter = this.gauss() * 0.16;
+    const scaleJitter = 1.0 + this.gauss() * 0.12;
+
+    const alongJitter = this.gauss() * this.nextStride * 0.1;
+    const acrossJitter = this.gauss() * this.lateralOffset * 0.3;
 
     fp.active = true;
     fp.pos
       .copy(pos)
       .addScaledVector(dir, alongJitter)
-      .addScaledVector(this.perp, side * this.lateralOffset + acrossJitter);
+      .addScaledVector(this.perp, side * this.lateralOffset + this.swayOffset + acrossJitter);
 
     // Toes point along the direction of travel (was reversed: +PI/2 pointed
     // the paw backwards relative to the drag).
-    fp.yaw = Math.atan2(dir.y, dir.x) - Math.PI * 0.5 + angleJitter;
+    fp.yaw = Math.atan2(dir.y, dir.x) - Math.PI * 0.5 + side * 0.05 + angleJitter;
     fp.scale = this.baseScale * scaleJitter;
     fp.side = side;
     fp.seed = this.random01() * 1000.0;
@@ -378,5 +395,10 @@ export class FootprintSystem {
   private random01(): number {
     this.randomState = (1664525 * this.randomState + 1013904223) >>> 0;
     return this.randomState / 4294967296;
+  }
+
+  // -1.5..+1.5 付近に集中する近似正規乱数（平均0, 標準偏差≈0.5）
+  private gauss(): number {
+    return this.random01() + this.random01() + this.random01() - 1.5;
   }
 }

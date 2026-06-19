@@ -7,19 +7,19 @@ export interface SceneLights {
 }
 
 export function createLights(scene: THREE.Scene): SceneLights {
-  const ambient = new THREE.AmbientLight(0xfff4e4, 0.08);
+  const ambient = new THREE.AmbientLight(0xfff4e4, 0.16);
   scene.add(ambient);
 
   const hemisphere = new THREE.HemisphereLight(0xdcecff, 0xb79b74, 0.52);
   scene.add(hemisphere);
 
-  const directional = new THREE.DirectionalLight(0xffedcf, 2.05);
-  directional.position.set(7.8, 6.2, -5.4);
+  const directional = new THREE.DirectionalLight(0xffedcf, 1.85);
+  directional.position.set(2.6, 12.0, -1.8);
   directional.castShadow = true;
   directional.shadow.mapSize.set(1024, 1024);
   directional.shadow.bias = -0.00012;
   directional.shadow.normalBias = 0.014;
-  directional.shadow.radius = 3.25;
+  directional.shadow.radius = 2.4;
 
   const shadowExtent = 12.5;
   directional.shadow.camera.left = -shadowExtent;
