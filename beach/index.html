@@ -253,7 +253,11 @@ float fbm3(vec2 p){ float a=.5,s=0.; for(int i=0;i<3;i++){ s+=a*vnoise(p); p=p*2
 float shoreFromTop(float x){
   float shape = 0.72 + 0.46*fbm(vec2(x*2.1 + uWaveSeed*19.0, uWaveSeed*7.0))
               + 0.11*fbm(vec2(x*7.3 + uWaveSeed*31.0, uWaveSeed*13.0));
-  float lap = 0.010*sin(x*19.0+uTime*1.6) + 0.007*sin(x*31.0-uTime*2.2) + 0.006*sin(x*7.0+uTime*0.9);
+  // Slowly morphing noise keeps the swash edge from reading as stacked sine waves.
+  float broad = vnoise(vec2(x*4.1 + uTime*0.025, uTime*0.071));
+  float curl = vnoise(vec2(x*11.7 - uTime*0.043 + broad*1.8, uTime*0.113 + 17.0));
+  float fray = vnoise(vec2(x*29.0 + curl*2.4, uTime*0.173 + 43.0));
+  float lap = (broad-0.5)*0.026 + (curl-0.5)*0.017 + (fray-0.5)*0.006;
   return uShoreBase + uReach*shape + lap*(0.5 + 0.9*uReach);
 }
 // x: covered (0..1 smooth), y: depth01 into the sea, z: signed dist past the front (uv units, + = under water)
@@ -330,7 +334,8 @@ void main(){
       vec2 pm = texture(uAtlas, auv).rg;
       float crisp = 0.45 + 0.55*smoothstep(0.0, 0.8, wet);
       float depth = uStampB[i].w * (0.72 + 0.5*wet);
-      float target = pm.g*0.38*crisp - pm.r*depth;
+      // Paw relief is intentionally only a trace: visible on inspection, quiet at a distance.
+      float target = pm.g*0.040*crisp - pm.r*depth*0.105;
       float m = clamp(pm.r*1.5 + pm.g*1.1, 0.0, 1.0);
       h = mix(h, target, m*0.92);
     }
@@ -343,6 +348,7 @@ void main(){
 const FS_DETAIL = COMMON + `
 uniform vec2 uSimSize;
 uniform float uAspect;
+uniform float uDetailSeed;
 in vec2 vUv;
 out vec4 fragColor;
 
@@ -358,25 +364,85 @@ vec2 worley(vec2 p){
   }
   return vec2(dmin, id);
 }
+float sdSegment(vec2 p, vec2 a, vec2 b){
+  vec2 pa=p-a, ba=b-a;
+  float h=clamp(dot(pa,ba)/dot(ba,ba),0.0,1.0);
+  return length(pa-ba*h);
+}
 void main(){
   vec2 q = vec2(vUv.x*uAspect, vUv.y);
-  // micro relief: fine granular bumps + medium undulation
+  q += vec2(uDetailSeed*19.37,uDetailSeed*37.91);
+  // Layered grain sizes and broad, irregular compaction patches.
+  float grainSize = vnoise(q*3.7 + 8.4);
+  float terrain = fbm(q*3.4);
+  float broadPatch = fbm3(q*1.25 + vec2(2.8,11.1));
   float micro = (fbm(q*46.0)-0.5)*0.055
               + (fbm(q*13.0)-0.5)*0.075
-              + (fbm(q*3.4)-0.5)*0.10;
-  // faint wind ripples on the dry upper beach
+              + (terrain-0.5)*0.10;
+  micro += (vnoise(q*mix(115.0,185.0,grainSize))-0.5)*0.020;
+
+  // Wind ripples fade in and out in patches instead of forming a uniform comb.
   float band = smoothstep(0.60, 0.20, vUv.y);
-  micro += sin((q.y*6.0 + fbm(q*2.2)*0.9)*26.0 + q.x*1.5) * 0.006 * band;
+  float ripplePatch = smoothstep(0.24,0.73,broadPatch);
+  float ripplePhase = (q.y*6.0 + terrain*1.25)*26.0 + q.x*(1.0+grainSize);
+  micro += sin(ripplePhase) * 0.0065 * band * ripplePatch;
 
-  float mottle = fbm(q*4.6 + 3.1);
-  float grain = mix(hash12(gl_FragCoord.xy), vnoise(q*420.0), 0.35);
+  float tideStain = smoothstep(0.64,0.86,broadPatch*0.72+vnoise(q*1.8+27.4)*0.28)
+                  * smoothstep(0.72,0.38,vUv.y);
+  float mottle = clamp(fbm(q*4.2+3.1)*0.67 + broadPatch*0.30 + tideStain*0.12,0.0,1.0);
+  float grainFreq = mix(300.0,520.0,grainSize);
+  float grain = mix(hash12(gl_FragCoord.xy),vnoise(q*grainFreq),0.42);
 
-  // scattered pebbles (dark) and shell flecks (light), sparse
+  // Pebbles and shell flecks are joined by a few organic beach-strand details.
   vec2 w = worley(q*80.0);
-  float pebble = smoothstep(0.09, 0.02, w.x) * step(0.988, w.y);
-  vec2 w2 = worley(q*60.0 + 31.7);
-  float shell = smoothstep(0.08, 0.02, w2.x) * step(0.992, w2.y);
-  float specks = pebble>0.01 ? 0.25 + pebble*0.2 : (shell>0.01 ? 0.6 + shell*0.35 : 0.0);
+  float pebble = smoothstep(0.10,0.02,w.x)*step(0.982,w.y);
+  vec2 w2 = worley(q*61.0+31.7);
+  float shell = smoothstep(0.095,0.018,w2.x)*step(0.985,w2.y);
+
+  // Sparse curved seaweed strands.
+  vec2 sc = q*10.0;
+  vec2 si = floor(sc);
+  vec2 sp = fract(sc)-0.5;
+  sp -= vec2(hash12(si+5.7)-0.5,hash12(si+17.1)-0.5)*vec2(0.55,0.45);
+  float sid = hash12(si+41.3);
+  float sang = sid*6.2831853;
+  vec2 sr = vec2(cos(sang)*sp.x+sin(sang)*sp.y,-sin(sang)*sp.x+cos(sang)*sp.y);
+  sr.y += 0.11*sin(sr.x*13.0+sid*9.0);
+  float seaweed = smoothstep(0.035,0.010,abs(sr.y))
+                * smoothstep(0.47,0.18,abs(sr.x))*step(0.973,hash12(si+83.2));
+
+  // An occasional sun-bleached sliver of driftwood.
+  vec2 dc = q*7.5;
+  vec2 di = floor(dc);
+  vec2 dp = fract(dc)-0.5;
+  dp -= vec2(hash12(di+2.4)-0.5,hash12(di+9.8)-0.5)*0.55;
+  float did = hash12(di+63.9);
+  float dang = did*6.2831853;
+  vec2 dr = vec2(cos(dang)*dp.x+sin(dang)*dp.y,-sin(dang)*dp.x+cos(dang)*dp.y);
+  float dlen = 0.17+0.16*hash12(di+28.6);
+  float driftwood = smoothstep(0.040,0.013,sdSegment(dr,vec2(-dlen,0.0),vec2(dlen,0.0)))
+                  * step(0.982,hash12(di+107.4));
+
+  // Tiny three-toed bird tracks, mostly above the damp strand line.
+  vec2 bc = q*18.0;
+  vec2 bi = floor(bc);
+  vec2 bp = fract(bc)-0.5;
+  bp -= vec2(hash12(bi+12.2)-0.5,hash12(bi+51.6)-0.5)*0.50;
+  float bid = hash12(bi+73.8);
+  float bang = bid*6.2831853;
+  bp = vec2(cos(bang)*bp.x+sin(bang)*bp.y,-sin(bang)*bp.x+cos(bang)*bp.y);
+  float birdD = min(sdSegment(bp,vec2(0.0,-0.04),vec2(-0.12,0.13)),
+                min(sdSegment(bp,vec2(0.0,-0.04),vec2(0.0,0.17)),
+                    sdSegment(bp,vec2(0.0,-0.04),vec2(0.12,0.13))));
+  float birdTrack = smoothstep(0.026,0.009,birdD)*step(0.978,hash12(bi+119.1))*band;
+  micro -= birdTrack*0.030;
+
+  // Alpha encodes a restrained material class for the composite pass.
+  float specks = 0.0;
+  if(pebble>0.001) specks = 0.18+0.14*pebble;
+  if(seaweed>0.001) specks = 0.37+0.10*seaweed;
+  if(driftwood>0.001) specks = 0.56+0.10*driftwood;
+  if(shell>0.001) specks = 0.78+0.20*shell;
 
   fragColor = vec4(micro+0.5, mottle, grain, specks);
 }`;
@@ -415,17 +481,22 @@ void main(){
   vec3 dryA = vec3(0.865, 0.786, 0.646);
   vec3 dryB = vec3(0.768, 0.672, 0.532);
   vec3 alb = mix(dryA, dryB, det.g);
-  alb *= 0.90 + 0.20*det.b;
-  // compacted print interiors read slightly darker
-  alb *= 1.0 - 0.07*smoothstep(0.0, -0.7, h);
+  alb *= 0.92 + 0.16*det.b;
+  // Compacted paw interiors carry only a nearly subliminal tonal trace.
+  alb *= 1.0 - 0.012*smoothstep(0.0,-0.08,h);
   // wet sand: darker, browner; noisy threshold keeps the wet line organic
   float w01 = smoothstep(0.02 + 0.20*(det.g-0.5) + 0.10*(det.b-0.5), 0.9, wet);
   vec3 wetAlb = alb * vec3(0.63, 0.56, 0.48);
   alb = mix(alb, wetAlb, w01*0.85);
-  // pebbles & shells
-  if(det.a > 0.15){
-    vec3 sc = det.a < 0.5 ? vec3(0.45,0.37,0.29) : vec3(0.90,0.86,0.79);
-    alb = mix(alb, sc, 0.55);
+  // Restrained beach litter: stone, seaweed, driftwood, then shells.
+  if(det.a > 0.12){
+    vec3 sc;
+    float sm;
+    if(det.a < 0.34){ sc=vec3(0.39,0.34,0.28); sm=0.42; }
+    else if(det.a < 0.51){ sc=vec3(0.28,0.31,0.18); sm=0.48; }
+    else if(det.a < 0.70){ sc=vec3(0.52,0.39,0.25); sm=0.46; }
+    else { sc=vec3(0.92,0.87,0.78); sm=0.58; }
+    alb = mix(alb,sc,sm);
   }
 
   // ---- lighting (sun upper-left, warm; cool sky fill; soft wrap)
@@ -434,8 +505,8 @@ void main(){
   vec3 sun = vec3(1.04, 0.96, 0.83);
   vec3 sky = vec3(0.55, 0.63, 0.72);
   vec3 col = alb * (sky*0.42 + sun*0.95*dif);
-  // ambient occlusion inside prints
-  col *= 1.0 - 0.19*smoothstep(0.0, -0.65, h);
+  // Very soft ambient occlusion inside the now-shallow paw impressions.
+  col *= 1.0 - 0.025*smoothstep(0.0,-0.09,h);
 
   // ---- wet sheen + sparkles
   vec3 Hv = normalize(L + vec3(0.,0.,1.));
@@ -445,58 +516,76 @@ void main(){
   float cell = hash12(spCell);
   vec2 spf = fract(gl_FragCoord.xy/2.0) - 0.5;
   float spDot = 1.0 - smoothstep(0.1, 0.5, length(spf));
-  float tw = smoothstep(0.9985, 1.0, cell) * (0.35+0.65*sin(uTime*5.0+cell*90.0)) * spDot;
-  col += sun * max(tw,0.0) * (0.08 + 0.5*w01) * (0.4+0.6*dif);
+  float twLife = vnoise(vec2(cell*37.0,uTime*0.72+cell*19.0));
+  float tw = smoothstep(0.9975,1.0,cell)*smoothstep(0.48,0.80,twLife)*spDot;
+  col += sun*tw*(0.08+0.42*w01)*(0.4+0.6*dif);
 
   // ---- water
   vec3 wi = waterInfo(uv);
   float dpS = 0.0;
   if(wi.x > 0.001){
     float dp = wi.y;
-    dpS = smoothstep(0.0, 0.75, dp);
-    vec3 shallowC = vec3(0.34, 0.64, 0.62);
-    vec3 deepC    = vec3(0.09, 0.38, 0.47);
-    vec3 waterC = mix(shallowC, deepC, dpS);
-    // rolling swell shading
-    float swell = fbm3(vec2(q.x*3.2, q.y*7.0 - uTime*0.22)) - 0.5;
-    waterC *= 1.0 + swell*0.38*dpS;
-    // aerial lightening toward the horizon
-    waterC = mix(waterC, vec3(0.50,0.72,0.72), smoothstep(0.5,1.0,dp)*0.22);
-    float alpha = mix(0.22, 0.94, smoothstep(0.0, 0.42, dp));
+    dpS = smoothstep(0.02,0.82,dp);
+    vec3 shallowC = vec3(0.25,0.59,0.56);
+    vec3 middleC  = vec3(0.075,0.39,0.47);
+    vec3 deepC    = vec3(0.025,0.25,0.34);
+    vec3 waterC = mix(shallowC,middleC,smoothstep(0.03,0.48,dp));
+    waterC = mix(waterC,deepC,smoothstep(0.42,1.0,dp));
+
+    // Two differently advected noise scales suggest swell without a clockwork period.
+    float swellLow = fbm3(vec2(q.x*2.7+uTime*0.025,q.y*6.2-uTime*0.12));
+    float crossFlow = vnoise(vec2(q.x*13.0+swellLow*2.1-uTime*0.055,
+                                  q.y*17.0+uTime*0.15));
+    float swell = (swellLow-0.5)*0.76+(crossFlow-0.5)*0.28;
+    waterC *= 1.0+swell*(0.13+0.24*dpS);
+    // A soft sky reflection lifts distant water while preserving the deeper teal.
+    waterC = mix(waterC,vec3(0.43,0.67,0.69),smoothstep(0.55,1.0,dp)*0.17);
+    // Very shallow water remains transparent enough for sand and mottling to show through.
+    float alpha = mix(0.10,0.91,smoothstep(0.0,0.52,dp));
     col = mix(col, waterC, alpha*wi.x);
-    // glassy film on the thin runup sheet
-    col += vec3(0.05,0.07,0.08) * (1.0-smoothstep(0.0,0.22,dp)) * wi.x;
-    // sun glitter concentrated along swell crests
-    float gl = hash12(floor(gl_FragCoord.xy/2.0)+floor(uTime*7.0));
-    float crest = smoothstep(0.10, 0.30, swell);
-    col += sun * step(0.9992, gl) * dpS * crest * 0.85;
-    // trailing white wash behind the breaking front
-    float bw = smoothstep(0.55, 0.85, fbm3(vec2(q.x*17.0, q.y*42.0) + vec2(0.0,-uTime*1.1)));
-    col = mix(col, vec3(0.88,0.93,0.93), bw * exp(-dp*9.0) * wi.x * (0.30+0.35*uFroth));
-    // shallow shimmer
-    float ca = fbm3(q*34.0+uTime*0.6)*fbm3(q*31.0-uTime*0.5);
-    col += vec3(0.5,0.7,0.7) * smoothstep(0.42,0.62,ca) * (1.0-dpS) * wi.x * 0.08;
-    // whitecaps offshore
-    float wc = smoothstep(0.68, 0.84, fbm3(vec2(q.x*6.5, q.y*14.0 - uTime*0.75)));
-    col = mix(col, vec3(0.90,0.94,0.94), wc * smoothstep(0.5,0.95,dp)*0.35);
+    col += vec3(0.035,0.055,0.060)*(1.0-smoothstep(0.0,0.20,dp))*wi.x;
+
+    // Long-lived, sparse glitter replaces frame-stepped flashing pixels.
+    vec2 glCell = floor(gl_FragCoord.xy/3.0);
+    float glSeed = hash12(glCell);
+    float glLife = vnoise(vec2(glSeed*43.0,uTime*0.90+glSeed*23.0));
+    float glint = smoothstep(0.996,1.0,glSeed)*smoothstep(0.55,0.82,glLife);
+    col += sun*glint*dpS*smoothstep(0.02,0.20,swell)*0.72;
+
+    // Broken white wash trails behind the front; its noise is warped by the broad swell.
+    float washN = fbm3(vec2(q.x*16.0+swellLow*1.7,q.y*39.0-uTime*0.82));
+    float bw = smoothstep(0.57,0.79,washN+crossFlow*0.12);
+    float washAmt = 0.16+0.30*uFroth+0.16*uRetreat;
+    col = mix(col,vec3(0.88,0.93,0.92),bw*exp(-dp*10.5)*wi.x*washAmt);
+
+    // Moving caustic fragments remain subtle enough not to obscure the sand below.
+    float ca = fbm3(q*31.0+vec2(uTime*0.23,-uTime*0.31)+swellLow);
+    col += vec3(0.48,0.70,0.67)*smoothstep(0.67,0.82,ca+crossFlow*0.12)
+         *(1.0-dpS)*wi.x*0.075;
+    // Offshore whitecaps borrow the same flows, so they form and dissolve irregularly.
+    float wc = smoothstep(0.63,0.79,swellLow*0.72+crossFlow*0.42);
+    col = mix(col,vec3(0.88,0.93,0.92),wc*smoothstep(0.56,0.96,dp)*0.24);
   }
   // ---- retreating water leaves a mirror-like draining film (patchy)
   float film = sim.w * (1.0 - wi.x) * (0.65 + 0.7*det.g);
   vec3 skyRef = vec3(0.60, 0.71, 0.76);
   col = mix(col, skyRef, film*film*0.30);
   col += sun * spec * film * 0.55;
-  // deep prints in soaked sand pool a little water
-  float pool = smoothstep(-0.38, -0.75, h) * w01;
-  col = mix(col, vec3(0.30,0.38,0.40), pool*0.35);
-  col += sun * spec * pool * 0.4;
+  // Only the deepest of the faint wet impressions catches a trace of water.
+  float pool = smoothstep(-0.075,-0.14,h)*w01;
+  col = mix(col,vec3(0.30,0.38,0.40),pool*0.055);
+  col += sun*spec*pool*0.07;
 
   // ---- foam: lacy churned edge + residue flecks
   float past = wi.z;
   float edge = exp(-abs(past)*(past>0.0 ? 60.0 : 150.0));
   float lace = fbm3(q*26.0 + vec2(0.0, -uTime*0.55));
   float lace2 = fbm3(q*64.0 + vec2(uTime*0.1, -uTime*0.9));
-  float foamEdge = edge * smoothstep(0.42, 0.85, lace*0.72 + lace2*0.45 + uFroth*0.25);
-  foamEdge += edge*edge*0.30*(0.3+0.7*uFroth);
+  float foamShape = lace*0.70+lace2*0.43+uFroth*0.20+uRetreat*0.08;
+  float brokenLace = smoothstep(0.48,0.79,foamShape)
+                   * (0.58+0.42*smoothstep(0.30,0.68,lace2));
+  float foamEdge = edge*brokenLace;
+  foamEdge += edge*edge*0.24*(0.25+0.75*uFroth);
   // residue: fine lacy bubble trails left along old swash lines
   float bubbles = fbm3(q*95.0 + 7.7) + lace2*0.35 - 0.18;
   float residue = foamR * (1.0-wi.x) * smoothstep(0.50, 0.78, bubbles) * 0.5;
@@ -585,6 +674,7 @@ const TILE_SCALE = [1 / ATLAS_COLS, 1 / ATLAS_ROWS];
 // sim + detail render targets
 let simW = 0, simH = 0, simTex = [null, null], simFbo = [null, null], simIdx = 0;
 let detTex = null, detFbo = null;
+const sandDetailSeed = Math.random();
 function makeTarget(w, h, floaty) {
   const t = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, t);
@@ -646,6 +736,7 @@ function resize() {
   gl.useProgram(progDetail);
   gl.uniform2f(U.d.uSimSize, simW, simH);
   gl.uniform1f(U.d.uAspect, simW / simH);
+  gl.uniform1f(U.d.uDetailSeed, sandDetailSeed);
   gl.uniform1f(U.d.uTime, 0);
   gl.uniform1f(U.d.uShoreBase, CFG.shoreBase);
   gl.uniform1f(U.d.uReach, 0);
@@ -665,32 +756,62 @@ window.addEventListener('resize', resize);
 // ================================================================
 //  Waves
 // ================================================================
-const wave = { phase: 'idle', t0: 0, dur: 9, amp: 0.7, seed: Math.random(), next: 2.2, env: 0, froth: 0, count: 0, prevReach: 0, retreat: 0 };
-function forceWave(amp) {
-  wave.phase = 'run'; wave.t0 = timeNow; wave.dur = 10 + Math.random() * 3;
-  wave.amp = amp; wave.seed = Math.random();
+const wave = {
+  phase: 'idle', t0: 0, dur: 9, amp: 0.7, seed: Math.random(), next: 2.2,
+  env: 0, froth: 0, count: 0, retreat: 0,
+  attack: 0.27, crest: 0.07, ebbPower: 1.0, startLevel: 0,
+};
+function beginWave(t, amp, dur) {
+  const carried = wave.env;
+  wave.phase = 'run'; wave.t0 = t; wave.dur = dur; wave.amp = amp;
+  // Preserve the current front shape when a button-triggered wave overlaps it.
+  if (carried < 0.03) wave.seed = Math.random();
+  wave.startLevel = carried;
+  wave.attack = 0.20 + Math.random() * 0.14;
+  wave.crest = 0.035 + Math.random() * 0.09;
+  wave.ebbPower = 0.78 + Math.random() * 0.62;
 }
-function updateWave(t) {
+function forceWave(amp) {
+  beginWave(timeNow, amp, 10 + Math.random() * 3.8);
+}
+function updateWave(t, dt) {
   if (wave.phase === 'idle' && t >= wave.next) {
     wave.count++;
-    const big = wave.count % 5 === 0;
-    wave.phase = 'run'; wave.t0 = t;
-    wave.dur = 7.5 + Math.random() * 3.5;
-    wave.amp = big ? 1.15 + Math.random() * 0.25 : 0.45 + Math.random() * 0.55;
-    wave.seed = Math.random();
+    const big = Math.random() < 0.18;
+    const amp = big ? 1.08 + Math.random() * 0.34 : 0.38 + Math.random() * 0.70;
+    beginWave(t, amp, 7.2 + Math.random() * 4.6 + (big ? 1.0 : 0));
   }
-  let env = 0, denv = 0;
+  let env = 0, rush = 0, retreatTarget = 0;
   if (wave.phase === 'run') {
     const p = (t - wave.t0) / wave.dur;
-    if (p >= 1) { wave.phase = 'idle'; wave.next = t + 1.5 + Math.random() * 4.5; }
-    else if (p < 0.30) { const u = p / 0.30; env = u * u * (3 - 2 * u); denv = 1; }
-    else { const u = (p - 0.30) / 0.70; env = 1 - u * u * (3 - 2 * u) * (1 - 0.0); env = Math.pow(1 - u, 1.35); denv = 0; }
+    const crestEnd = wave.attack + wave.crest;
+    if (p >= 1) {
+      wave.phase = 'idle';
+      wave.next = t + 1.0 + Math.pow(Math.random(), 1.35) * 6.5;
+    } else if (p < wave.attack) {
+      const u = clamp01(p / wave.attack);
+      const rise = Math.pow(smoothstep(0, 1, u), 0.82 + wave.seed * 0.22);
+      env = mix(clamp(wave.startLevel / wave.amp, 0, 0.92), 1, rise);
+      rush = smoothstep(0.06, 0.82, u);
+    } else if (p < crestEnd) {
+      const u = (p - wave.attack) / wave.crest;
+      env = 1 - 0.035 * smoothstep(0, 1, u);
+      rush = 1 - 0.28 * u;
+    } else {
+      const u = clamp01((p - crestEnd) / (1 - crestEnd));
+      const ebb = Math.pow(1 - u, wave.ebbPower);
+      const n = valueNoise2D(u * 3.1 + wave.seed * 17.0, wave.seed * 23.0, wave.seed * 101.0);
+      // Small, one-off hesitations break the perfectly mathematical retreat curve.
+      env = ebb * (1 + (n - 0.5) * 0.16 * (4 * u * (1 - u)));
+      rush = Math.max(0, 0.72 - u * 3.6);
+      retreatTarget = smoothstep(0.0, 0.18, u) * (1 - smoothstep(0.72, 1.0, u));
+    }
   }
-  wave.env = env * wave.amp;
-  wave.froth += ((denv * Math.min(wave.amp, 1.2)) - wave.froth) * 0.08;
+  wave.env = Math.max(0, env * wave.amp);
+  const frothTarget = rush * Math.min(wave.amp, 1.2);
+  wave.froth += (frothTarget - wave.froth) * (1 - Math.exp(-dt * 4.6));
+  wave.retreat += (retreatTarget - wave.retreat) * (1 - Math.exp(-dt * 5.2));
   const reach = CFG.runupMax * wave.env;
-  wave.retreat += (clamp01((wave.prevReach - reach) * 900) - wave.retreat) * 0.15;
-  wave.prevReach = reach;
   return { reach, froth: clamp01(wave.froth), seed: wave.seed, retreat: wave.retreat };
 }
 
@@ -945,7 +1066,7 @@ function frame(nowMs) {
   }
   updateDemo();
 
-  const wv = updateWave(timeNow);
+  const wv = updateWave(timeNow, dt);
   updateAudio();
 
   // ---- update sim (ping-pong)
@@ -995,6 +1116,7 @@ function frame(nowMs) {
   gl.uniform1f(U.c.uReach, wv.reach);
   gl.uniform1f(U.c.uWaveSeed, wv.seed);
   gl.uniform1f(U.c.uFroth, wv.froth);
+  if (U.c.uRetreat) gl.uniform1f(U.c.uRetreat, wv.retreat);
   const b = updateBird(timeNow);
   gl.uniform4f(U.c.uBird, b[0], b[1], b[2], b[3]);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
