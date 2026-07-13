@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0e4a5e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>砂浜のあしあと 🐾</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐾</text></svg>">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body {
+    width:100%; height:100%;
+    overflow:hidden; overscroll-behavior:none;
+    background:#c9ac7f;
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Segoe UI",sans-serif;
+    -webkit-user-select:none; user-select:none;
+    -webkit-touch-callout:none;
+  }
+  #c {
+    position:fixed; inset:0; width:100%; height:100%;
+    display:block; touch-action:none; cursor:pointer;
+  }
+  #hint {
+    position:fixed; left:50%; bottom:calc(96px + env(safe-area-inset-bottom));
+    transform:translateX(-50%);
+    background:rgba(255,253,248,.82); color:#6b4f2e;
+    padding:10px 22px; border-radius:999px;
+    font-size:15px; letter-spacing:.08em; white-space:nowrap;
+    box-shadow:0 4px 20px rgba(60,40,10,.18);
+    pointer-events:none; opacity:0;
+    transition:opacity 1.2s ease;
+    animation:bob 2.6s ease-in-out infinite;
+  }
+  #hint.show { opacity:1; }
+  #hint.hide { opacity:0 !important; }
+  @keyframes bob { 0%,100%{transform:translate(-50%,0)} 50%{transform:translate(-50%,-6px)} }
+  #ui {
+    position:fixed; right:calc(14px + env(safe-area-inset-right));
+    bottom:calc(14px + env(safe-area-inset-bottom));
+    display:flex; flex-direction:column; gap:10px; z-index:5;
+  }
+  #ui button {
+    width:52px; height:52px; border:none; border-radius:50%;
+    background:rgba(255,253,248,.78); backdrop-filter:blur(6px);
+    font-size:24px; line-height:1; cursor:pointer;
+    box-shadow:0 3px 14px rgba(50,35,10,.22);
+    transition:transform .12s ease, background .2s;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #ui button:active { transform:scale(.88); }
+  #err {
+    position:fixed; inset:0; display:none; place-items:center;
+    background:#0e4a5e; color:#fff; padding:24px; text-align:center;
+    font-size:15px; line-height:1.9; z-index:10;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hint">すなはまを ゆびで なぞってね 🐾</div>
+<div id="ui">
+  <button id="btnWave" title="波をよぶ" aria-label="波をよぶ">🌊</button>
+  <button id="btnSound" title="音" aria-label="音の切り替え">🔊</button>
+</div>
+<div id="err"><div>ごめんなさい、この端末では WebGL2 が使えないため<br>砂浜を表示できませんでした 🏖️</div></div>
+
+<script>
+'use strict';
+/* ================================================================
+   砂浜のあしあと — a GPU sand-and-surf toy.
+   Height/wetness/foam simulated in a float texture; dog paw
+   prints are stamped from a procedurally drawn paw atlas, waves
+   roll in and wash them away.
+   ================================================================ */
+
+// ------------------------------------------------ tuning constants
+const CFG = {
+  dprCap: 2,
+  simMax: 1500,          // max sim texture dimension
+  shoreBase: 0.165,      // permanent sea coverage from top (fraction of height)
+  runupMax: 0.33,        // normal wave runup (fraction of height)
+  bigWaveAmp: 1.6,      // multiplier for the "call a wave" button
+  pawFrac: 0.105,        // paw size as a fraction of min(view w,h)
+  stepFrac: 2.45,        // step length in paw sizes
+  trackFrac: 0.80,       // distance between left/right print lines, in paw sizes
+  hindScale: 0.87,       // hind paw size relative to fore paw
+  demoDelay: 1.4,        // seconds before the ghost dog demo runs
+  idleRedemo: 26,        // seconds of idle before the ghost dog returns
+};
+
+// ------------------------------------------------ tiny DOM helpers
+const canvas = document.getElementById('c');
+const hintEl = document.getElementById('hint');
+const btnWave = document.getElementById('btnWave');
+const btnSound = document.getElementById('btnSound');
+const DEBUG = /[?&]debug/.test(location.search);
+
+const gl = canvas.getContext('webgl2', {
+  antialias: false, alpha: false, depth: false, stencil: false,
+  powerPreference: 'high-performance', preserveDrawingBuffer: false,
+});
+if (!gl) { document.getElementById('err').style.display = 'grid'; throw new Error('no webgl2'); }
+canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); setTimeout(() => location.reload(), 400); });
+
+const extCBF = gl.getExtension('EXT_color_buffer_float') ||
+               gl.getExtension('EXT_color_buffer_half_float');
+const FLOAT_SIM = !!extCBF && !/[?&]nofloat/.test(location.search);
+
+// ================================================================
+//  Procedural dog-paw stamp atlas (CPU, generated once)
+//  R = depression mask, G = displaced-sand mound mask
+// ================================================================
+const TWO_PI = Math.PI * 2;
+const fract = v => v - Math.floor(v);
+const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
+const clamp01 = v => clamp(v, 0, 1);
+const mix = (a, b, t) => a + (b - a) * t;
+const smoothstep = (e0, e1, x) => { const t = clamp01((x - e0) / (e1 - e0)); return t * t * (3 - 2 * t); };
+const hash3 = (x, y, z) => fract(Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453123);
+const sHash = (seed, ch) => hash3(seed + ch * 19.19, ch * 7.31, seed * 0.37 + 2.0) * 2 - 1;
+
+function valueNoise2D(x, y, seed) {
+  const ix = Math.floor(x), iy = Math.floor(y), fx = fract(x), fy = fract(y);
+  const sx = fx * fx * (3 - 2 * fx), sy = fy * fy * (3 - 2 * fy);
+  return mix(
+    mix(hash3(ix, iy, seed), hash3(ix + 1, iy, seed), sx),
+    mix(hash3(ix, iy + 1, seed), hash3(ix + 1, iy + 1, seed), sx), sy);
+}
+function angularNoise(a, seed) {
+  return Math.sin(a * 3 + hash3(seed, .13, 1) * TWO_PI) * .42 +
+         Math.sin(a * 5 + hash3(seed, 1.73, 2) * TWO_PI) * .30 +
+         Math.sin(a * 8 + hash3(seed, 3.31, 3) * TWO_PI) * .20 +
+         Math.sin(a * 13 + hash3(seed, 7.07, 4) * TWO_PI) * .08;
+}
+function samplePad(u, v, pad, edgeCollapse, seed) {
+  const dx = u - pad.cx, dy = v - pad.cy;
+  const cr = Math.cos(pad.rot), sr = Math.sin(pad.rot);
+  const nx = (dx * cr + dy * sr) / pad.rx, ny = (-dx * sr + dy * cr) / pad.ry;
+  const r = Math.hypot(nx, ny);
+  if (r > 1.35) return 0;
+  const outline = angularNoise(Math.atan2(ny, nx), seed + pad.so * 11);
+  const fine = valueNoise2D(nx * 2.8 + seed * .071, ny * 2.8 - pad.so * .137, seed + pad.so * 17) * 2 - 1;
+  const boundary = 1 + edgeCollapse * pad.rough * (outline * .76 + fine * .24);
+  const ar = r / clamp(boundary, .74, 1.24);
+  if (ar >= 1) return 0;
+  const bowl = Math.pow(Math.max(0, 1 - ar * ar), pad.exp);
+  const band = smoothstep(.58, .98, ar);
+  const cn = valueNoise2D(nx * 7.4 + seed * .19, ny * 7.4 + pad.so * .23, seed + pad.so * 23);
+  const crumble = clamp(1 - edgeCollapse * pad.crumble * band * (.25 + cn * .75), .68, 1);
+  return pad.amp * bowl * crumble;
+}
+function buildPawPads(seed, edgeCollapse, claw) {
+  const jit = .012 + edgeCollapse * .006, tjit = .016 + edgeCollapse * .006;
+  const toeSpread = 1 + sHash(seed, 100) * .1;
+  const padSize = 1 + sHash(seed, 101) * .08;
+  const gap = sHash(seed, 102) * .014;
+  const cy = .6 + sHash(seed, 2) * jit, cx = .5 + sHash(seed, 1) * jit;
+  const central = [
+    { cx, cy: cy + .02, rx: .137 * padSize, ry: .121 * padSize, rot: sHash(seed, 80) * .05, amp: .92, exp: 1.1, so: 1, rough: .21, crumble: .1 },
+    { cx: cx - .058 + sHash(seed, 3) * jit, cy: cy - .038 + sHash(seed, 4) * jit, rx: .088 * padSize, ry: .074 * padSize, rot: -.22 + sHash(seed, 81) * .06, amp: .82, exp: 1.18, so: 2, rough: .24, crumble: .12 },
+    { cx: cx + .058 + sHash(seed, 5) * jit, cy: cy - .038 + sHash(seed, 6) * jit, rx: .088 * padSize, ry: .074 * padSize, rot: .22 + sHash(seed, 82) * .06, amp: .82, exp: 1.18, so: 3, rough: .24, crumble: .12 },
+    { cx: cx + sHash(seed, 83) * jit, cy: cy + .066 + sHash(seed, 7) * jit, rx: .052 * padSize, ry: .058 * padSize, rot: sHash(seed, 84) * .08, amp: .72, exp: 1.25, so: 4, rough: .21, crumble: .1 },
+    { cx: cx - .06 + sHash(seed, 85) * jit, cy: cy + .052 + sHash(seed, 8) * jit, rx: .046 * padSize, ry: .052 * padSize, rot: -.25 + sHash(seed, 86) * .06, amp: .68, exp: 1.28, so: 4.7, rough: .22, crumble: .11 },
+    { cx: cx + .06 + sHash(seed, 87) * jit, cy: cy + .052 + sHash(seed, 9) * jit, rx: .046 * padSize, ry: .052 * padSize, rot: .25 + sHash(seed, 88) * .06, amp: .68, exp: 1.28, so: 5.4, rough: .22, crumble: .11 },
+    { cx, cy: cy - .002, rx: .094 * padSize, ry: .083 * padSize, rot: 0, amp: .45, exp: 1.35, so: 5, rough: .16, crumble: .08 },
+  ];
+  const toeSpecs = [
+    { x: .354, y: .46, rot: -.36, scale: .95, amp: .75 },
+    { x: .452, y: .425, rot: -.12, scale: 1.04, amp: .83 },
+    { x: .548, y: .425, rot: .12, scale: 1.03, amp: .82 },
+    { x: .646, y: .46, rot: .36, scale: .96, amp: .75 },
+  ];
+  const clawSplay = [-.18, -.06, .06, .18];
+  const toes = [], claws = [];
+  toeSpecs.forEach((spec, i) => {
+    const scale = spec.scale * (1 + sHash(seed, 20 + i) * .1);
+    const rot = spec.rot + sHash(seed, 30 + i) * .08;
+    const rx = .052 * scale, ry = .076 * scale;
+    const tx = .5 + (spec.x - .5) * toeSpread + sHash(seed, 40 + i) * tjit;
+    const ty = spec.y + gap + sHash(seed, 50 + i) * tjit;
+    toes.push({ cx: tx, cy: ty, rx, ry, rot, amp: clamp(spec.amp + sHash(seed, 60 + i) * .04, .66, .88), exp: 1.16, so: 10 + i, rough: .28, crumble: .16 });
+    if (claw > .01) {
+      const cr = rot + clawSplay[i];
+      const fx = Math.sin(cr), fy = -Math.cos(cr);
+      const d = ry + .034 + claw * .012;
+      claws.push({ cx: tx + fx * d, cy: ty + fy * d, rx: .0105 * (0.9 + claw * .25) * scale, ry: .03 * (.9 + claw * .35) * scale, rot: cr, amp: claw * (.13 + hash3(seed, 70 + i, 1) * .05), exp: 1.35, so: 40 + i, rough: .18, crumble: .1 });
+    }
+  });
+  const mounds = [];
+  toes.forEach((t, i) => {
+    const fx = Math.sin(t.rot), fy = -Math.cos(t.rot), d = t.ry * 1.1 + .02;
+    mounds.push({ cx: t.cx + fx * d, cy: t.cy + fy * d, rx: t.rx * .85, ry: t.ry * .7, rot: t.rot, amp: .46, exp: 1.6, so: 80 + i, rough: .16, crumble: .08 });
+  });
+  claws.forEach((c, i) => {
+    const fx = Math.sin(c.rot), fy = -Math.cos(c.rot), d = c.ry * .95 + .014;
+    mounds.push({ cx: c.cx + fx * d, cy: c.cy + fy * d, rx: Math.max(c.rx * 2.4, .012), ry: Math.max(c.ry * .68, .018), rot: c.rot, amp: .24, exp: 1.65, so: 90 + i, rough: .14, crumble: .08 });
+  });
+  return { central, toes, claws, mounds };
+}
+function buildPawAtlas(cols, rows, tile) {
+  const W = cols * tile, H = rows * tile;
+  const data = new Uint8Array(W * H * 4);
+  const screen = (a, b) => a + b - a * b;
+  for (let v = 0; v < cols * rows; v++) {
+    const seed = 7.3 + v * 131.71;
+    const { central, toes, claws, mounds } = buildPawPads(seed, 0.42, 0.5);
+    const ox = (v % cols) * tile, oy = Math.floor(v / cols) * tile;
+    for (let y = 0; y < tile; y++) {
+      const pv = (y + .5) / tile;
+      for (let x = 0; x < tile; x++) {
+        const pu = (x + .5) / tile;
+        let mask = 0;
+        for (const p of central) mask = screen(mask, samplePad(pu, pv, p, .42, seed));
+        for (const p of toes) mask = Math.max(mask, samplePad(pu, pv, p, .42, seed));
+        for (const p of claws) mask = Math.max(mask, samplePad(pu, pv, p, .42, seed));
+        let mound = 0;
+        for (const p of mounds) mound = Math.max(mound, samplePad(pu, pv, p, .27, seed));
+        mound = clamp01(mound) * clamp(1 - mask * 1.3, 0, 1);
+        const o = ((oy + y) * W + ox + x) * 4;
+        data[o] = Math.round(clamp01(mask) * 255);
+        data[o + 1] = Math.round(mound * 255);
+        data[o + 3] = 255;
+      }
+    }
+  }
+  return { data, W, H };
+}
+
+// ================================================================
+//  GLSL
+// ================================================================
+const COMMON = `#version 300 es
+precision highp float;
+uniform float uTime;
+uniform float uShoreBase;   // permanent sea coverage from top (0..1)
+uniform float uReach;       // current extra runup from top (0..1)
+uniform float uWaveSeed;    // per-wave shape seed
+uniform float uFroth;       // 0..1, high while the wave rushes in
+uniform float uRetreat;     // 0..1, high while the wave pulls back
+
+float hash12(vec2 p){ vec3 p3=fract(vec3(p.xyx)*.1031); p3+=dot(p3,p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }
+float vnoise(vec2 p){
+  vec2 i=floor(p), f=fract(p); vec2 u=f*f*(3.-2.*f);
+  return mix(mix(hash12(i),hash12(i+vec2(1,0)),u.x),
+             mix(hash12(i+vec2(0,1)),hash12(i+vec2(1,1)),u.x),u.y);
+}
+float fbm(vec2 p){ float a=.5,s=0.; for(int i=0;i<4;i++){ s+=a*vnoise(p); p=p*2.03+vec2(31.7,11.3); a*=.5; } return s; }
+float fbm3(vec2 p){ float a=.5,s=0.; for(int i=0;i<3;i++){ s+=a*vnoise(p); p=p*2.03+vec2(31.7,11.3); a*=.5; } return s; }
+
+// waterfront distance from top of screen at horizontal position x
+float shoreFromTop(float x){
+  float shape = 0.72 + 0.46*fbm(vec2(x*2.1 + uWaveSeed*19.0, uWaveSeed*7.0))
+              + 0.11*fbm(vec2(x*7.3 + uWaveSeed*31.0, uWaveSeed*13.0));
+  float lap = 0.010*sin(x*19.0+uTime*1.6) + 0.007*sin(x*31.0-uTime*2.2) + 0.006*sin(x*7.0+uTime*0.9);
+  return uShoreBase + uReach*shape + lap*(0.5 + 0.9*uReach);
+}
+// x: covered (0..1 smooth), y: depth01 into the sea, z: signed dist past the front (uv units, + = under water)
+vec3 waterInfo(vec2 uv){
+  float sft = shoreFromTop(uv.x);
+  float frontY = 1.0 - sft;
+  float past = uv.y - frontY;
+  float covered = smoothstep(-0.0015, 0.0015, past);
+  float depth01 = clamp(past / max(sft, 1e-3), 0.0, 1.0);
+  return vec3(covered, depth01, past);
+}
+`;
+
+const VS = `#version 300 es
+layout(location=0) in vec2 aPos;
+out vec2 vUv;
+void main(){ vUv = aPos*0.5+0.5; gl_Position = vec4(aPos,0.,1.); }`;
+
+// sim state: x height, y wetness, z foam residue, w water film (sheen)
+const PACK = FLOAT_SIM
+  ? `vec4 encodeSim(vec4 s){ return s; }
+     vec4 decodeSim(vec4 t){ return t; }`
+  : `vec4 encodeSim(vec4 s){ return vec4(s.x/3.0+0.5, s.y, s.z, s.w); }
+     vec4 decodeSim(vec4 t){ return vec4((t.r-0.5)*3.0, t.g, t.b, t.a); }`;
+
+// ---------------------------------------------------------- update
+const FS_UPDATE = COMMON + PACK + `
+uniform sampler2D uPrev;
+uniform sampler2D uAtlas;
+uniform vec2  uSimSize;
+uniform float uDt;
+uniform int   uStampCount;
+uniform vec4  uStampA[8];  // xy: pos(px, y-up)  zw: heading unit vec (y-up)
+uniform vec4  uStampB[8];  // xy: atlas tile origin uv  z: size(px)  w: depth scale
+uniform vec2  uTileScale;
+in vec2 vUv;
+out vec4 fragColor;
+void main(){
+  vec4 s = decodeSim(texture(uPrev, vUv));
+  float h = s.x, wet = s.y, foam = s.z, film = s.w;
+
+  vec3 wi = waterInfo(vUv);
+  float covered = wi.x, depth01 = wi.y;
+
+  // waves smooth the sand and soak it
+  float wash = covered * (1.3 + 9.0*depth01);
+  h *= exp(-uDt*wash);
+  wet = max(wet, covered);
+  // capillary fringe: sand just beyond the runup gets damp too
+  wet = max(wet, 0.85*exp(min(wi.z, 0.0)*70.0));
+  // foam residue: thin arcs deposited by the retreating waterline
+  float dep = exp(-abs(wi.z)*60.0) * (0.15 + 0.85*uRetreat);
+  foam = max(foam*exp(-uDt*(covered>0.5 ? 0.30 : 0.15)), dep);
+  // thin mirror film of water clings to just-uncovered sand, drains in seconds
+  film = max(film*exp(-uDt*0.4), covered);
+
+  // permanent dampness gradient near the sea + slow, patchy drying
+  float fromTop = 1.0 - vUv.y;
+  float baseWet = 0.5*smoothstep(uShoreBase+0.30, uShoreBase+0.02, fromTop);
+  wet = max(wet - uDt*(0.005 + 0.008*vnoise(vUv*vec2(29.0,37.0))), baseWet);
+
+  // sand relaxes extremely slowly on its own
+  h *= exp(-uDt*0.005);
+
+  // paw stamps
+  vec2 px = vUv * uSimSize;
+  for(int i=0;i<8;i++){
+    if(i>=uStampCount) break;
+    vec2 d = px - uStampA[i].xy;
+    vec2 hd = uStampA[i].zw;
+    vec2 l = vec2(d.x*hd.y - d.y*hd.x, d.x*hd.x + d.y*hd.y) / uStampB[i].z + 0.5;
+    if(l.x>0.002 && l.x<0.998 && l.y>0.002 && l.y<0.998){
+      vec2 auv = uStampB[i].xy + l*uTileScale;
+      vec2 pm = texture(uAtlas, auv).rg;
+      float crisp = 0.45 + 0.55*smoothstep(0.0, 0.8, wet);
+      float depth = uStampB[i].w * (0.72 + 0.5*wet);
+      float target = pm.g*0.38*crisp - pm.r*depth;
+      float m = clamp(pm.r*1.5 + pm.g*1.1, 0.0, 1.0);
+      h = mix(h, target, m*0.92);
+    }
+  }
+  h = clamp(h, -1.45, 1.0);
+  fragColor = encodeSim(vec4(h, clamp(wet,0.,1.), clamp(foam,0.,1.), clamp(film,0.,1.)));
+}`;
+
+// ------------------------------------------- static sand detail map
+const FS_DETAIL = COMMON + `
+uniform vec2 uSimSize;
+uniform float uAspect;
+in vec2 vUv;
+out vec4 fragColor;
+
+// nearest-feature worley for pebbles / shell bits
+vec2 worley(vec2 p){
+  vec2 ip = floor(p), fp = fract(p);
+  float dmin = 8.0; float id = 0.0;
+  for(int j=-1;j<=1;j++) for(int i=-1;i<=1;i++){
+    vec2 g = vec2(float(i),float(j));
+    vec2 o = vec2(hash12(ip+g), hash12(ip+g+19.7));
+    float d = length(g + o - fp);
+    if(d<dmin){ dmin=d; id=hash12(ip+g+7.3); }
+  }
+  return vec2(dmin, id);
+}
+void main(){
+  vec2 q = vec2(vUv.x*uAspect, vUv.y);
+  // micro relief: fine granular bumps + medium undulation
+  float micro = (fbm(q*46.0)-0.5)*0.055
+              + (fbm(q*13.0)-0.5)*0.075
+              + (fbm(q*3.4)-0.5)*0.10;
+  // faint wind ripples on the dry upper beach
+  float band = smoothstep(0.60, 0.20, vUv.y);
+  micro += sin((q.y*6.0 + fbm(q*2.2)*0.9)*26.0 + q.x*1.5) * 0.006 * band;
+
+  float mottle = fbm(q*4.6 + 3.1);
+  float grain = mix(hash12(gl_FragCoord.xy), vnoise(q*420.0), 0.35);
+
+  // scattered pebbles (dark) and shell flecks (light), sparse
+  vec2 w = worley(q*80.0);
+  float pebble = smoothstep(0.09, 0.02, w.x) * step(0.988, w.y);
+  vec2 w2 = worley(q*60.0 + 31.7);
+  float shell = smoothstep(0.08, 0.02, w2.x) * step(0.992, w2.y);
+  float specks = pebble>0.01 ? 0.25 + pebble*0.2 : (shell>0.01 ? 0.6 + shell*0.35 : 0.0);
+
+  fragColor = vec4(micro+0.5, mottle, grain, specks);
+}`;
+
+// ------------------------------------------------------- composite
+const FS_COMPOSITE = COMMON + PACK + `
+uniform sampler2D uSim;
+uniform sampler2D uDet;
+uniform vec2  uRes;
+uniform vec2  uSimSize;
+uniform float uAspect;
+uniform vec4  uBird;   // xy: pos (uv), z: heading, w: strength
+in vec2 vUv;
+out vec4 fragColor;
+
+float heightAt(vec2 uv){
+  return decodeSim(texture(uSim, uv)).x + (texture(uDet, uv).r - 0.5)*0.55;
+}
+void main(){
+  vec2 uv = vUv;
+  vec2 q = vec2(uv.x*uAspect, uv.y);
+  vec4 sim = decodeSim(texture(uSim, uv));
+  float h = sim.x, wet = sim.y, foamR = sim.z;
+  vec4 det = texture(uDet, uv);
+
+  // ---- normals from height field (soft-saturated so steep walls don't blow out)
+  vec2 e = 1.4 / uSimSize;
+  float hL = heightAt(uv-vec2(e.x,0.)), hR = heightAt(uv+vec2(e.x,0.));
+  float hB = heightAt(uv-vec2(0.,e.y)), hT = heightAt(uv+vec2(0.,e.y));
+  float bump = uSimSize.y * 0.023;
+  vec2 g = vec2(hL-hR, hB-hT) * bump;
+  g /= 1.0 + 0.55*length(g);
+  vec3 n = normalize(vec3(g, 1.0));
+
+  // ---- sand albedo
+  vec3 dryA = vec3(0.865, 0.786, 0.646);
+  vec3 dryB = vec3(0.768, 0.672, 0.532);
+  vec3 alb = mix(dryA, dryB, det.g);
+  alb *= 0.90 + 0.20*det.b;
+  // compacted print interiors read slightly darker
+  alb *= 1.0 - 0.07*smoothstep(0.0, -0.7, h);
+  // wet sand: darker, browner; noisy threshold keeps the wet line organic
+  float w01 = smoothstep(0.02 + 0.20*(det.g-0.5) + 0.10*(det.b-0.5), 0.9, wet);
+  vec3 wetAlb = alb * vec3(0.63, 0.56, 0.48);
+  alb = mix(alb, wetAlb, w01*0.85);
+  // pebbles & shells
+  if(det.a > 0.15){
+    vec3 sc = det.a < 0.5 ? vec3(0.45,0.37,0.29) : vec3(0.90,0.86,0.79);
+    alb = mix(alb, sc, 0.55);
+  }
+
+  // ---- lighting (sun upper-left, warm; cool sky fill; soft wrap)
+  vec3 L = normalize(vec3(-0.48, 0.52, 0.62));
+  float dif = clamp(dot(n, L)*0.78 + 0.22, 0.0, 1.0);
+  vec3 sun = vec3(1.04, 0.96, 0.83);
+  vec3 sky = vec3(0.55, 0.63, 0.72);
+  vec3 col = alb * (sky*0.42 + sun*0.95*dif);
+  // ambient occlusion inside prints
+  col *= 1.0 - 0.19*smoothstep(0.0, -0.65, h);
+
+  // ---- wet sheen + sparkles
+  vec3 Hv = normalize(L + vec3(0.,0.,1.));
+  float spec = pow(clamp(dot(n,Hv),0.,1.), 90.0);
+  col += sun * spec * (0.03 + 0.5*w01);
+  vec2 spCell = floor(gl_FragCoord.xy/2.0);
+  float cell = hash12(spCell);
+  vec2 spf = fract(gl_FragCoord.xy/2.0) - 0.5;
+  float spDot = 1.0 - smoothstep(0.1, 0.5, length(spf));
+  float tw = smoothstep(0.9985, 1.0, cell) * (0.35+0.65*sin(uTime*5.0+cell*90.0)) * spDot;
+  col += sun * max(tw,0.0) * (0.08 + 0.5*w01) * (0.4+0.6*dif);
+
+  // ---- water
+  vec3 wi = waterInfo(uv);
+  float dpS = 0.0;
+  if(wi.x > 0.001){
+    float dp = wi.y;
+    dpS = smoothstep(0.0, 0.75, dp);
+    vec3 shallowC = vec3(0.34, 0.64, 0.62);
+    vec3 deepC    = vec3(0.09, 0.38, 0.47);
+    vec3 waterC = mix(shallowC, deepC, dpS);
+    // rolling swell shading
+    float swell = fbm3(vec2(q.x*3.2, q.y*7.0 - uTime*0.22)) - 0.5;
+    waterC *= 1.0 + swell*0.38*dpS;
+    // aerial lightening toward the horizon
+    waterC = mix(waterC, vec3(0.50,0.72,0.72), smoothstep(0.5,1.0,dp)*0.22);
+    float alpha = mix(0.22, 0.94, smoothstep(0.0, 0.42, dp));
+    col = mix(col, waterC, alpha*wi.x);
+    // glassy film on the thin runup sheet
+    col += vec3(0.05,0.07,0.08) * (1.0-smoothstep(0.0,0.22,dp)) * wi.x;
+    // sun glitter concentrated along swell crests
+    float gl = hash12(floor(gl_FragCoord.xy/2.0)+floor(uTime*7.0));
+    float crest = smoothstep(0.10, 0.30, swell);
+    col += sun * step(0.9992, gl) * dpS * crest * 0.85;
+    // trailing white wash behind the breaking front
+    float bw = smoothstep(0.55, 0.85, fbm3(vec2(q.x*17.0, q.y*42.0) + vec2(0.0,-uTime*1.1)));
+    col = mix(col, vec3(0.88,0.93,0.93), bw * exp(-dp*9.0) * wi.x * (0.30+0.35*uFroth));
+    // shallow shimmer
+    float ca = fbm3(q*34.0+uTime*0.6)*fbm3(q*31.0-uTime*0.5);
+    col += vec3(0.5,0.7,0.7) * smoothstep(0.42,0.62,ca) * (1.0-dpS) * wi.x * 0.08;
+    // whitecaps offshore
+    float wc = smoothstep(0.68, 0.84, fbm3(vec2(q.x*6.5, q.y*14.0 - uTime*0.75)));
+    col = mix(col, vec3(0.90,0.94,0.94), wc * smoothstep(0.5,0.95,dp)*0.35);
+  }
+  // ---- retreating water leaves a mirror-like draining film (patchy)
+  float film = sim.w * (1.0 - wi.x) * (0.65 + 0.7*det.g);
+  vec3 skyRef = vec3(0.60, 0.71, 0.76);
+  col = mix(col, skyRef, film*film*0.30);
+  col += sun * spec * film * 0.55;
+  // deep prints in soaked sand pool a little water
+  float pool = smoothstep(-0.38, -0.75, h) * w01;
+  col = mix(col, vec3(0.30,0.38,0.40), pool*0.35);
+  col += sun * spec * pool * 0.4;
+
+  // ---- foam: lacy churned edge + residue flecks
+  float past = wi.z;
+  float edge = exp(-abs(past)*(past>0.0 ? 60.0 : 150.0));
+  float lace = fbm3(q*26.0 + vec2(0.0, -uTime*0.55));
+  float lace2 = fbm3(q*64.0 + vec2(uTime*0.1, -uTime*0.9));
+  float foamEdge = edge * smoothstep(0.42, 0.85, lace*0.72 + lace2*0.45 + uFroth*0.25);
+  foamEdge += edge*edge*0.30*(0.3+0.7*uFroth);
+  // residue: fine lacy bubble trails left along old swash lines
+  float bubbles = fbm3(q*95.0 + 7.7) + lace2*0.35 - 0.18;
+  float residue = foamR * (1.0-wi.x) * smoothstep(0.50, 0.78, bubbles) * 0.5;
+  float foamAll = clamp(foamEdge*1.15 + residue, 0.0, 1.0);
+  vec3 foamCol = mix(vec3(0.72,0.80,0.80), vec3(0.98,1.0,1.0), clamp(lace2*0.8+0.35,0.,1.));
+  col = mix(col, foamCol, foamAll);
+
+  // ---- a gull glides over now and then; its soft shadow crosses the sand
+  if(uBird.w > 0.001){
+    vec2 bp = (uv - uBird.xy) * vec2(uAspect, 1.0);
+    float ca = cos(uBird.z), sa = sin(uBird.z);
+    bp = vec2(bp.x*ca + bp.y*sa, -bp.x*sa + bp.y*ca);
+    float flap = 0.5 + 0.5*sin(uTime*15.0);
+    float wy = bp.y + abs(bp.x)*0.30*(flap-0.45);
+    float wings = exp(-pow(bp.x/(0.040*(0.6+0.55*flap)), 2.0) - pow(wy/0.0065, 2.0));
+    float body  = exp(-pow(bp.x/0.0075, 2.0) - pow(bp.y/0.012, 2.0));
+    col *= 1.0 - clamp(wings*0.85 + body, 0.0, 1.0) * 0.14 * uBird.w;
+  }
+
+  // ---- grade: vignette, subtle warmth, dithering
+  vec2 vc = uv - 0.5;
+  col *= 1.0 - 0.10*pow(length(vc)*1.35, 2.2);
+  col = pow(max(col, 0.0), vec3(0.985, 1.0, 1.02));
+  col += (hash12(gl_FragCoord.xy + fract(uTime)) - 0.5) / 255.0;
+  fragColor = vec4(col, 1.0);
+}`;
+
+// ================================================================
+//  GL plumbing
+// ================================================================
+function makeShader(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+    throw new Error('shader: ' + gl.getShaderInfoLog(s) + '\n' + src.split('\n').map((l,i)=>`${i+1}: ${l}`).join('\n'));
+  return s;
+}
+function makeProgram(fsSrc) {
+  const p = gl.createProgram();
+  gl.attachShader(p, makeShader(gl.VERTEX_SHADER, VS));
+  gl.attachShader(p, makeShader(gl.FRAGMENT_SHADER, fsSrc));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error('link: ' + gl.getProgramInfoLog(p));
+  return p;
+}
+const quadVao = gl.createVertexArray();
+gl.bindVertexArray(quadVao);
+const vb = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vb);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+const progUpdate = makeProgram(FS_UPDATE);
+const progDetail = makeProgram(FS_DETAIL);
+const progComp = makeProgram(FS_COMPOSITE);
+const U = {};
+for (const [name, prog] of [['u', progUpdate], ['d', progDetail], ['c', progComp]]) {
+  U[name] = {};
+  const n = gl.getProgramParameter(prog, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) {
+    const info = gl.getActiveUniform(prog, i);
+    U[name][info.name.replace('[0]', '')] = gl.getUniformLocation(prog, info.name);
+  }
+}
+
+// paw atlas texture
+const ATLAS_COLS = 4, ATLAS_ROWS = 2, ATLAS_TILE = 176;
+const atlas = buildPawAtlas(ATLAS_COLS, ATLAS_ROWS, ATLAS_TILE);
+const texAtlas = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, texAtlas);
+gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, atlas.W, atlas.H, 0, gl.RGBA, gl.UNSIGNED_BYTE, atlas.data);
+gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+// atlas tile origin (uv) for variant v — canvas row 0 is at the TOP, upload is Y-flipped
+function atlasTileOrigin(v) {
+  const col = v % ATLAS_COLS, row = Math.floor(v / ATLAS_COLS);
+  return [col / ATLAS_COLS, 1 - (row + 1) / ATLAS_ROWS];
+}
+const TILE_SCALE = [1 / ATLAS_COLS, 1 / ATLAS_ROWS];
+
+// sim + detail render targets
+let simW = 0, simH = 0, simTex = [null, null], simFbo = [null, null], simIdx = 0;
+let detTex = null, detFbo = null;
+function makeTarget(w, h, floaty) {
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  if (floaty && FLOAT_SIM) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+  else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const f = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  return [t, f];
+}
+
+let viewW = 0, viewH = 0, dpr = 1, renderScale = 1;
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, CFG.dprCap) * renderScale;
+  const w = Math.round(canvas.clientWidth * dpr), h = Math.round(canvas.clientHeight * dpr);
+  if (w === viewW && h === viewH && simTex[0]) return;
+  viewW = w; viewH = h;
+  canvas.width = w; canvas.height = h;
+  const scale = Math.min(1, CFG.simMax / Math.max(w, h));
+  simW = Math.max(2, Math.round(w * scale));
+  simH = Math.max(2, Math.round(h * scale));
+  const oldSim = simTex[simIdx];
+  const oldFbos = [...simFbo], oldTexs = [...simTex];
+  for (let i = 0; i < 2; i++) {
+    [simTex[i], simFbo[i]] = makeTarget(simW, simH, true);
+    gl.clearColor(FLOAT_SIM ? 0 : 0.5, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+  if (oldSim) {
+    // carry the beach state across the resize (uv-space copy via update pass)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, simFbo[0]);
+    gl.viewport(0, 0, simW, simH);
+    gl.useProgram(progUpdate);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, oldSim);
+    gl.uniform1i(U.u.uPrev, 0);
+    gl.uniform1f(U.u.uDt, 0);
+    gl.uniform1i(U.u.uStampCount, 0);
+    gl.uniform1f(U.u.uReach, 0);
+    gl.uniform1f(U.u.uTime, timeNow);
+    gl.uniform1f(U.u.uShoreBase, CFG.shoreBase);
+    gl.uniform1f(U.u.uWaveSeed, 0);
+    gl.uniform1f(U.u.uFroth, 0);
+    if (U.u.uRetreat) gl.uniform1f(U.u.uRetreat, 0);
+    gl.uniform2f(U.u.uSimSize, simW, simH);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    simIdx = 0;
+    for (const t of oldTexs) gl.deleteTexture(t);
+    for (const f of oldFbos) gl.deleteFramebuffer(f);
+  }
+  if (detTex) { gl.deleteTexture(detTex); gl.deleteFramebuffer(detFbo); }
+  [detTex, detFbo] = makeTarget(simW, simH, true);
+  // bake the static sand detail map
+  gl.bindFramebuffer(gl.FRAMEBUFFER, detFbo);
+  gl.viewport(0, 0, simW, simH);
+  gl.useProgram(progDetail);
+  gl.uniform2f(U.d.uSimSize, simW, simH);
+  gl.uniform1f(U.d.uAspect, simW / simH);
+  gl.uniform1f(U.d.uTime, 0);
+  gl.uniform1f(U.d.uShoreBase, CFG.shoreBase);
+  gl.uniform1f(U.d.uReach, 0);
+  gl.uniform1f(U.d.uWaveSeed, 0);
+  gl.uniform1f(U.d.uFroth, 0);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  metrics();
+}
+let pawPx = 40, stepLen = 100, trackW = 32;
+function metrics() {
+  pawPx = clamp(Math.min(simW, simH) * CFG.pawFrac, 26, 120);
+  stepLen = pawPx * CFG.stepFrac;
+  trackW = pawPx * CFG.trackFrac;
+}
+window.addEventListener('resize', resize);
+
+// ================================================================
+//  Waves
+// ================================================================
+const wave = { phase: 'idle', t0: 0, dur: 9, amp: 0.7, seed: Math.random(), next: 2.2, env: 0, froth: 0, count: 0, prevReach: 0, retreat: 0 };
+function forceWave(amp) {
+  wave.phase = 'run'; wave.t0 = timeNow; wave.dur = 10 + Math.random() * 3;
+  wave.amp = amp; wave.seed = Math.random();
+}
+function updateWave(t) {
+  if (wave.phase === 'idle' && t >= wave.next) {
+    wave.count++;
+    const big = wave.count % 5 === 0;
+    wave.phase = 'run'; wave.t0 = t;
+    wave.dur = 7.5 + Math.random() * 3.5;
+    wave.amp = big ? 1.15 + Math.random() * 0.25 : 0.45 + Math.random() * 0.55;
+    wave.seed = Math.random();
+  }
+  let env = 0, denv = 0;
+  if (wave.phase === 'run') {
+    const p = (t - wave.t0) / wave.dur;
+    if (p >= 1) { wave.phase = 'idle'; wave.next = t + 1.5 + Math.random() * 4.5; }
+    else if (p < 0.30) { const u = p / 0.30; env = u * u * (3 - 2 * u); denv = 1; }
+    else { const u = (p - 0.30) / 0.70; env = 1 - u * u * (3 - 2 * u) * (1 - 0.0); env = Math.pow(1 - u, 1.35); denv = 0; }
+  }
+  wave.env = env * wave.amp;
+  wave.froth += ((denv * Math.min(wave.amp, 1.2)) - wave.froth) * 0.08;
+  const reach = CFG.runupMax * wave.env;
+  wave.retreat += (clamp01((wave.prevReach - reach) * 900) - wave.retreat) * 0.15;
+  wave.prevReach = reach;
+  return { reach, froth: clamp01(wave.froth), seed: wave.seed, retreat: wave.retreat };
+}
+
+// ================================================================
+//  Paw stamping + trails
+// ================================================================
+const stampQueue = [];
+function pushStamp(x, y, hdx, hdy, size, depth) {
+  stampQueue.push({ x, y, hdx, hdy, size, depth, tile: Math.floor(Math.random() * ATLAS_COLS * ATLAS_ROWS) });
+  if (stampQueue.length > 64) stampQueue.splice(0, stampQueue.length - 64);
+}
+// client coords -> sim pixel coords (y-up)
+function toSim(cx, cy) {
+  return [cx / canvas.clientWidth * simW, (1 - cy / canvas.clientHeight) * simH];
+}
+function placeStep(trail) {
+  const { hx, hy } = trail;          // unit heading, sim space (y-up)
+  const rx = hy, ry = -hx;           // right of travel
+  const s = trail.side;
+  const j = () => (Math.random() - 0.5) * pawPx * 0.14;
+  // fore paw
+  const fx = trail.x + rx * s * trackW * 0.5 + j();
+  const fy = trail.y + ry * s * trackW * 0.5 + j();
+  const wob = s * 0.05 + (Math.random() - 0.5) * 0.14;
+  const cw = Math.cos(wob), sw = Math.sin(wob);
+  const fhx = hx * cw - hy * sw, fhy = hx * sw + hy * cw;
+  pushStamp(fx, fy, fhx, fhy, pawPx * (0.95 + Math.random() * 0.12), 0.9 + Math.random() * 0.25);
+  // hind paw: lands just behind and inside the fore print (trotting register)
+  const bx = fx - hx * stepLen * 0.40 - rx * s * trackW * 0.16 + j();
+  const by = fy - hy * stepLen * 0.40 - ry * s * trackW * 0.16 + j();
+  const wob2 = wob + s * 0.10 + (Math.random() - 0.5) * 0.1;
+  const c2 = Math.cos(wob2), s2 = Math.sin(wob2);
+  pushStamp(bx, by, hx * c2 - hy * s2, hx * s2 + hy * c2, pawPx * CFG.hindScale * (0.95 + Math.random() * 0.1), 0.8 + Math.random() * 0.2);
+  trail.side = -s;
+  stepFeedback(fy / simH);
+}
+const trails = new Map();
+function trailStart(id, cx, cy) {
+  const [x, y] = toSim(cx, cy);
+  const t = { x, y, hx: 0, hy: 1, dist: stepLen * 0.999, side: Math.random() < 0.5 ? 1 : -1, moved: false };
+  trails.set(id, t);
+}
+function trailMove(id, cx, cy) {
+  const t = trails.get(id); if (!t) return;
+  const [x, y] = toSim(cx, cy);
+  let dx = x - t.x, dy = y - t.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 0.5) return;
+  dx /= len; dy /= len;
+  if (!t.moved) { t.hx = dx; t.hy = dy; t.moved = true; }
+  else {
+    // smooth the heading so prints follow a natural line
+    const k = clamp(len / (pawPx * 1.2), 0.12, 0.55);
+    t.hx = mix(t.hx, dx, k); t.hy = mix(t.hy, dy, k);
+    const hl = Math.hypot(t.hx, t.hy) || 1; t.hx /= hl; t.hy /= hl;
+  }
+  t.dist += len;
+  t.x = x; t.y = y;
+  while (t.dist >= stepLen) {
+    t.dist -= stepLen;
+    placeStep(t);
+  }
+}
+function trailEnd(id, cx, cy) {
+  const t = trails.get(id);
+  if (t && !t.moved) {
+    // a simple tap: one standing pair of prints
+    const a = Math.random() * TWO_PI;
+    t.hx = Math.sin(a); t.hy = Math.cos(a);
+    placeStep(t);
+  }
+  trails.delete(id);
+}
+
+// ================================================================
+//  Pointer input
+// ================================================================
+let userTouched = false, lastInteract = 0;
+canvas.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  canvas.setPointerCapture(e.pointerId);
+  userTouched = true; lastInteract = timeNow;
+  hintEl.classList.add('hide');
+  initAudio();
+  if (trails.size < 3) trailStart(e.pointerId, e.clientX, e.clientY);
+});
+canvas.addEventListener('pointermove', e => {
+  if (!trails.has(e.pointerId)) return;
+  lastInteract = timeNow;
+  const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+  for (const ev of events) trailMove(e.pointerId, ev.clientX, ev.clientY);
+});
+const endTrail = e => { trailEnd(e.pointerId, e.clientX, e.clientY); };
+canvas.addEventListener('pointerup', endTrail);
+canvas.addEventListener('pointercancel', endTrail);
+
+// ================================================================
+//  Ghost dog demo (runs while idle so the beach explains itself)
+// ================================================================
+let demo = null, demoCount = 0, lastDemoEnd = 0;
+function startDemo() {
+  demoCount++;
+  const W = simW, H = simH;
+  const y0 = H * (0.18 + Math.random() * 0.25);
+  const y1 = H * (0.15 + Math.random() * 0.35);
+  const dir = Math.random() < 0.5;
+  const p0 = [dir ? -pawPx * 2 : W + pawPx * 2, y0];
+  const p3 = [dir ? W + pawPx * 2 : -pawPx * 2, y1];
+  const p1 = [mix(p0[0], p3[0], 0.33), H * (0.1 + Math.random() * 0.45)];
+  const p2 = [mix(p0[0], p3[0], 0.66), H * (0.1 + Math.random() * 0.45)];
+  demo = {
+    t0: timeNow, dur: 3.6,
+    at(u) {
+      const a = 1 - u;
+      return [
+        a*a*a*p0[0] + 3*a*a*u*p1[0] + 3*a*u*u*p2[0] + u*u*u*p3[0],
+        a*a*a*p0[1] + 3*a*a*u*p1[1] + 3*a*u*u*p2[1] + u*u*u*p3[1],
+      ];
+    },
+    trail: { x: p0[0], y: p0[1], hx: 0, hy: 1, dist: stepLen * 0.9, side: 1, moved: false },
+  };
+}
+function updateDemo() {
+  if (!demo) return;
+  const u = (timeNow - demo.t0) / demo.dur;
+  if (u >= 1) { demo = null; lastDemoEnd = timeNow; return; }
+  const [x, y] = demo.at(u);
+  const t = demo.trail;
+  let dx = x - t.x, dy = y - t.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 0.5) return;
+  dx /= len; dy /= len;
+  if (!t.moved) { t.hx = dx; t.hy = dy; t.moved = true; }
+  else { t.hx = mix(t.hx, dx, 0.3); t.hy = mix(t.hy, dy, 0.3);
+         const hl = Math.hypot(t.hx, t.hy) || 1; t.hx /= hl; t.hy /= hl; }
+  t.dist += len; t.x = x; t.y = y;
+  while (t.dist >= stepLen) { t.dist -= stepLen; placeStep(t); }
+}
+
+// ================================================================
+//  Audio: surf synced to the wave envelope + soft paw crunches
+// ================================================================
+let AC = null, master = null, surfGain = null, hissGain = null, muted = false;
+function initAudio() {
+  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
+  try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch { return; }
+  master = AC.createGain(); master.gain.value = muted ? 0 : 1; master.connect(AC.destination);
+  const len = AC.sampleRate * 2;
+  const buf = AC.createBuffer(1, len, AC.sampleRate);
+  const d = buf.getChannelData(0);
+  let b0=0,b1=0,b2=0;
+  for (let i = 0; i < len; i++) {   // pink-ish noise
+    const w = Math.random()*2-1;
+    b0 = 0.997*b0 + 0.03*w; b1 = 0.985*b1 + 0.05*w; b2 = 0.95*b2 + 0.1*w;
+    d[i] = (b0*3.5 + b1*2.0 + b2*1.2 + w*0.2) * 0.22;
+  }
+  const mk = () => { const s = AC.createBufferSource(); s.buffer = buf; s.loop = true; return s; };
+  const lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420; lp.Q.value = 0.4;
+  surfGain = AC.createGain(); surfGain.gain.value = 0.05;
+  const src1 = mk();
+  src1.connect(lp); lp.connect(surfGain); surfGain.connect(master);
+  const bp = AC.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2100; bp.Q.value = 0.5;
+  hissGain = AC.createGain(); hissGain.gain.value = 0.0;
+  const src2 = mk(); src2.playbackRate.value = 1.31;
+  src2.connect(bp); bp.connect(hissGain); hissGain.connect(master);
+  src1.start(); src2.start();
+  try { AC.resume(); } catch {}
+}
+// step crunch
+function stepFeedback(shoreNess) {
+  if (userTouched && navigator.vibrate) { try { navigator.vibrate(5); } catch {} }
+  if (!AC || muted) return;
+  const t = AC.currentTime;
+  const dur = 0.07 + Math.random() * 0.04;
+  const src = AC.createBufferSource();
+  const n = Math.floor(AC.sampleRate * dur);
+  const b = AC.createBuffer(1, n, AC.sampleRate);
+  const ch = b.getChannelData(0);
+  for (let i = 0; i < n; i++) ch[i] = (Math.random()*2-1) * Math.pow(1 - i/n, 1.6);
+  src.buffer = b;
+  const bp = AC.createBiquadFilter(); bp.type = 'bandpass';
+  bp.frequency.value = mix(1400, 620, clamp01(shoreNess*1.3)) * (0.9 + Math.random()*0.25);
+  bp.Q.value = 0.9;
+  const g = AC.createGain(); g.gain.value = 0.16;
+  src.connect(bp); bp.connect(g); g.connect(master);
+  src.start(t);
+}
+function updateAudio() {
+  if (!AC || !surfGain) return;
+  const t = AC.currentTime;
+  surfGain.gain.setTargetAtTime(0.06 + wave.env * 0.24, t, 0.4);
+  hissGain.gain.setTargetAtTime(wave.froth * 0.20 + wave.env * 0.03, t, 0.25);
+}
+btnSound.addEventListener('click', () => {
+  muted = !muted;
+  btnSound.textContent = muted ? '🔇' : '🔊';
+  initAudio();
+  if (master) master.gain.setTargetAtTime(muted ? 0 : 1, AC.currentTime, 0.1);
+});
+btnWave.addEventListener('click', () => {
+  userTouched = true; lastInteract = timeNow;
+  initAudio();
+  forceWave(CFG.bigWaveAmp);
+});
+
+// ================================================================
+//  Gull flyover (shadow only)
+// ================================================================
+const bird = { t0: -1, dur: 3, from: [0, 0], to: [0, 0], next: DEBUG ? 2.5 : 14 + Math.random() * 15 };
+function updateBird(t) {
+  if (bird.t0 < 0 && t >= bird.next) {
+    const ltr = Math.random() < 0.5;
+    const y0 = 0.25 + Math.random() * 0.5, y1 = clamp01(y0 + (Math.random() - 0.5) * 0.5);
+    bird.from = [ltr ? -0.12 : 1.12, y0];
+    bird.to = [ltr ? 1.12 : -0.12, y1];
+    bird.dur = 2.6 + Math.random() * 1.6;
+    bird.t0 = t;
+  }
+  if (bird.t0 < 0) return [0, 0, 0, 0];
+  const u = (t - bird.t0) / bird.dur;
+  if (u >= 1) { bird.t0 = -1; bird.next = t + 24 + Math.random() * 40; return [0, 0, 0, 0]; }
+  const x = mix(bird.from[0], bird.to[0], u);
+  const y = mix(bird.from[1], bird.to[1], u) + 0.02 * Math.sin(u * 9.0);
+  const heading = Math.atan2(bird.to[1] - bird.from[1], (bird.to[0] - bird.from[0]) / 1.0);
+  const s = Math.sin(Math.PI * clamp01(u)) * 2.0;
+  return [x, y, heading, clamp01(s)];
+}
+
+// ================================================================
+//  Main loop
+// ================================================================
+let timeNow = 0, lastT = 0, started = performance.now();
+// adaptive quality: drop render resolution if frames run long
+let dtAvg = 1 / 60, lastQualityCheck = 0;
+function frame(nowMs) {
+  requestAnimationFrame(frame);
+  timeNow = (nowMs - started) / 1000;
+  let dt = Math.min(timeNow - lastT, 0.05);
+  lastT = timeNow;
+  dtAvg += (Math.min(dt, 0.1) - dtAvg) * 0.05;
+  if (timeNow - lastQualityCheck > 2.5 && timeNow > 4) {
+    lastQualityCheck = timeNow;
+    if (dtAvg > 0.024 && renderScale > 0.55) { renderScale *= 0.8; viewW = 0; }
+  }
+  resize();
+
+  // demo dog: once on load, then again only after long idle
+  if (!demo && trails.size === 0 &&
+      ((!userTouched && timeNow > CFG.demoDelay && demoCount === 0) ||
+       (timeNow - Math.max(lastInteract, lastDemoEnd) > CFG.idleRedemo))) {
+    startDemo();
+  }
+  updateDemo();
+
+  const wv = updateWave(timeNow);
+  updateAudio();
+
+  // ---- update sim (ping-pong)
+  const src = simIdx, dst = 1 - simIdx;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, simFbo[dst]);
+  gl.viewport(0, 0, simW, simH);
+  gl.useProgram(progUpdate);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, simTex[src]);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texAtlas);
+  gl.uniform1i(U.u.uPrev, 0); gl.uniform1i(U.u.uAtlas, 1);
+  gl.uniform2f(U.u.uSimSize, simW, simH);
+  gl.uniform1f(U.u.uDt, dt);
+  gl.uniform1f(U.u.uTime, timeNow);
+  gl.uniform1f(U.u.uShoreBase, CFG.shoreBase);
+  gl.uniform1f(U.u.uReach, wv.reach);
+  gl.uniform1f(U.u.uWaveSeed, wv.seed);
+  gl.uniform1f(U.u.uFroth, wv.froth);
+  if (U.u.uRetreat) gl.uniform1f(U.u.uRetreat, wv.retreat);
+  gl.uniform2f(U.u.uTileScale, TILE_SCALE[0], TILE_SCALE[1]);
+  const nStamps = Math.min(stampQueue.length, 8);
+  const A = new Float32Array(32), B = new Float32Array(32);
+  for (let i = 0; i < nStamps; i++) {
+    const s = stampQueue[i];
+    const o = atlasTileOrigin(s.tile);
+    A.set([s.x, s.y, s.hdx, s.hdy], i * 4);
+    B.set([o[0], o[1], s.size, s.depth], i * 4);
+  }
+  stampQueue.splice(0, nStamps);
+  gl.uniform1i(U.u.uStampCount, nStamps);
+  gl.uniform4fv(U.u.uStampA, A);
+  gl.uniform4fv(U.u.uStampB, B);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  simIdx = dst;
+
+  // ---- composite
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, viewW, viewH);
+  gl.useProgram(progComp);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, simTex[simIdx]);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, detTex);
+  gl.uniform1i(U.c.uSim, 0); gl.uniform1i(U.c.uDet, 1);
+  gl.uniform2f(U.c.uRes, viewW, viewH);
+  gl.uniform2f(U.c.uSimSize, simW, simH);
+  gl.uniform1f(U.c.uAspect, viewW / viewH);
+  gl.uniform1f(U.c.uTime, timeNow);
+  gl.uniform1f(U.c.uShoreBase, CFG.shoreBase);
+  gl.uniform1f(U.c.uReach, wv.reach);
+  gl.uniform1f(U.c.uWaveSeed, wv.seed);
+  gl.uniform1f(U.c.uFroth, wv.froth);
+  const b = updateBird(timeNow);
+  gl.uniform4f(U.c.uBird, b[0], b[1], b[2], b[3]);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+resize();
+if (DEBUG) {
+  // stamp a compass of paws for orientation checking
+  setTimeout(() => {
+    const cx = simW / 2, cy = simH / 2, r = Math.min(simW, simH) * 0.3;
+    for (let k = 0; k < 8; k++) {
+      const a = k / 8 * TWO_PI;
+      pushStamp(cx + Math.sin(a) * r, cy + Math.cos(a) * r, Math.sin(a), Math.cos(a), pawPx, 1.0);
+    }
+    pushStamp(cx, cy, 0, 1, pawPx * 1.4, 1.0);
+  }, 300);
+}
+setTimeout(() => { if (!userTouched) hintEl.classList.add('show'); }, 2600);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
