@@ -45,6 +45,7 @@ jobs:
           mkdir -p _deploy
           cp index.html _deploy/
           cp -r sand-footprint-sim/dist _deploy/sand-footprint-sim
+          cp -r beach _deploy/beach
           cp -r game _deploy/game
           cp -r game-v2 _deploy/game-v2
           cp -r game-v3 _deploy/game-v3
