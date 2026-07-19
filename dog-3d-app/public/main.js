@@ -54,6 +54,8 @@ function setupScene() {
   elements.actionQueue = actionQueue;
   elements.dog = dog;
   elements.sceneContext = sceneContext;
+  // デバッグ・拡張用フック
+  window.__dogApp = { sceneContext, dog, actionQueue };
 
   function animate() {
     sceneContext.render(dog);
