@@ -14,16 +14,16 @@ export interface SandParams {
 }
 
 export const defaultSandParams: SandParams = {
-  moisture: 0.06, // Dry beach sand: pale and loose rather than damp and dark.
-  hardness: 0.51, // Firmer surface so paw walls stay crisp instead of slumping.
-  grainSize: 0.79, // Coarser grain reads as real coastal sand at this zoom.
-  cohesion: 0.53, // Balanced rim hold around each pad.
-  bodyWeight: 0.4, // Lighter pressure: clear but not exaggerated prints.
-  footprintDepth: 0.5, // Moderate centre depression.
-  rimHeight: 0.3, // Visible lip of displaced sand, restrained by the softer mask gradient.
-  edgeCollapse: 0.4, // Stronger crumbling softens sharp outlines while preserving anatomy.
-  decaySpeed: 0.71, // Prints fade fairly quickly so the beach stays fresh.
-  darkeningStrength: 0.47, // Fresh damp dents darken for contrast without looking painted.
-  noiseStrength: 0.36, // Fine procedural grain supports the print rather than obscuring it.
-  sandTone: 0.5 // Golden beach by default; lower for white sand, higher for brown.
+  moisture: 0.04, // 乾いた珊瑚砂: 明るくサラサラ。湿り暗化はほぼなし。
+  hardness: 0.42, // 柔らかめ: 足が沈み、輪郭は崩れる。
+  grainSize: 0.82, // 粗めの粒感(実際の海岸砂のスケール感)。
+  cohesion: 0.5, // 縁は残るが崩れやすいバランス。
+  bodyWeight: 0.45, // 沈み込みは明瞭に、誇張はしない。
+  footprintDepth: 0.55, // 中央の窪みはややはっきり。
+  rimHeight: 0.44, // 押し出された縁+蹴り散らしが読める高さ。
+  edgeCollapse: 0.58, // 乾いた砂: 輪郭は大きく崩れる(肉球の形は残らない)。
+  decaySpeed: 0.45, // 乾いた砂の跡は急には消えない。
+  darkeningStrength: 0.22, // 乾いた砂は色がほぼ変わらない: 陰影主体。
+  noiseStrength: 0.42, // 粒の微細凹凸をやや強めに(写真の質感)。
+  sandTone: 0.18 // クリーム寄りの珊瑚砂(白0〜金0.5の間)。
 };

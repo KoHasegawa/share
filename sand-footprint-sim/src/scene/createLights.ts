@@ -7,14 +7,17 @@ export interface SceneLights {
 }
 
 export function createLights(scene: THREE.Scene): SceneLights {
-  const ambient = new THREE.AmbientLight(0xfff4e4, 0.16);
+  const ambient = new THREE.AmbientLight(0xfff7ec, 0.18);
   scene.add(ambient);
 
-  const hemisphere = new THREE.HemisphereLight(0xdcecff, 0xb79b74, 0.52);
+  // 地面反射色も明るいクリームに(暗い土色だと砂全体が茶に沈む)
+  const hemisphere = new THREE.HemisphereLight(0xdcecff, 0xc8c0b0, 0.52);
   scene.add(hemisphere);
 
+  // 設計書 §9 どおり仰角 ~35° の斜光にする。真上からのトップダウン視点でも
+  // 足跡の窪み・縁の凹凸が陰影として立体的に読めるようにする。
   const directional = new THREE.DirectionalLight(0xffedcf, 1.85);
-  directional.position.set(2.6, 12.0, -1.8);
+  directional.position.set(5.4, 4.6, -3.2);
   directional.castShadow = true;
   directional.shadow.mapSize.set(1024, 1024);
   directional.shadow.bias = -0.00012;

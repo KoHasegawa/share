@@ -3,7 +3,10 @@ import { SandParams } from '../sand/sandParams';
 import { FootprintType } from './footprintTypes';
 import { PawStampAtlas } from './pawStamp';
 
-export const MAX_FOOTPRINTS = 15;
+// 15個ではひと続きのなぞりですぐ古い跡が消え、「砂に跡が残る」体験が
+// 成立しない(GLM-5 サイクル2レビュー)。減衰寿命(~10秒)となぞり速度から
+// 40個で「画面内の踏み跡が減衰より先にバッファ切れで消えない」バランスにする。
+export const MAX_FOOTPRINTS = 40;
 
 // How long a fresh print takes to fully "press" into the sand.
 const APPEAR_DURATION = 0.18;
@@ -312,7 +315,7 @@ export class FootprintSystem {
     if (!this.stampAtlas) {
       this.stampAtlas = this.type.generateStampAtlas({
         size: 256,
-        edgeCollapse: 0.32,
+        edgeCollapse: 0.55,
         seed: 1337.0,
         claw: 0.4
       });

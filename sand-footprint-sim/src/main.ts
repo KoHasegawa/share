@@ -77,6 +77,15 @@ async function boot(): Promise<void> {
   window.addEventListener('resize', handleResize, { passive: true });
   handleResize();
 
+  // デバッグ・検証用フック(E2Eテストからの直接操作に使用)
+  (window as unknown as { __sim?: object }).__sim = {
+    footprintSystem,
+    sandPlane,
+    sandParams,
+    cameraController,
+    renderer
+  };
+
   const washButton = document.getElementById('wash-button');
   if (washButton instanceof HTMLButtonElement) {
     washButton.addEventListener('click', triggerWash);

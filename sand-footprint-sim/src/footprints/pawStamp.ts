@@ -486,6 +486,207 @@ function paintPaw(ctx: StampContext, ox: number, oy: number, size: number, opts:
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// 乾いた砂の「攪乱」スタンプ (dog-3d-app の足跡表現の移植)
+//
+// 現実の乾いた砂浜では肉球の形はくっきり残らない。足が沈むと縁が崩れ、
+// 蹴り出しで砂が後方へ飛ぶ。ここでは解剖学的なパッド形状を描かず、
+//   R = 崩れた不定形の窪み(輪郭を低次ローブ+ノイズで歪ませる)
+//   G = 押し出された縁(後方バイアス)+蹴り散らしの小さな砂だまり
+// のマスクを生成する。タイル上方(canvas top)が進行方向(local +y)。
+// ---------------------------------------------------------------------------
+function paintDisturbance(
+  ctx: StampContext,
+  ox: number,
+  oy: number,
+  size: number,
+  opts: PawStampOptions
+): boolean {
+  const edgeCollapse = clamp01(finiteOr(opts.edgeCollapse, 0.4));
+  const seed = finiteOr(opts.seed, 0.0);
+
+  let image: ImageData;
+  try {
+    image = ctx.createImageData(size, size);
+  } catch {
+    return false;
+  }
+
+  const data = image.data;
+  const invSize = 1.0 / size;
+
+  // 窪みの基本半径(タイル正規化)。縁(~1.9r)と後方の蹴り散らしが
+  // タイル(±0.5)内に収まる値。
+  const baseRadius = 0.22;
+  // 輪郭を歪ませる低次ローブ(真円にしない)
+  const p1 = hash3(seed, 0.7, 1.0) * TWO_PI;
+  const p2 = hash3(seed, 2.9, 2.0) * TWO_PI;
+  const a1 = 0.16 + hash3(seed, 5.1, 3.0) * 0.14;
+  const a2 = 0.1 + hash3(seed, 7.3, 4.0) * 0.12;
+  // 中心の僅かなオフセット(接地の非対称性)
+  const cx = 0.5 + signedHash(seed, 110.0) * 0.03;
+  const cy = 0.5 + signedHash(seed, 111.0) * 0.03;
+
+  // 蹴り散らし: 後方(canvas 下方向 = local -y)へ小さな砂だまりを散らす
+  interface Blob {
+    x: number;
+    y: number;
+    r: number;
+    amp: number;
+  }
+  const scatter: Blob[] = [];
+  const scatterCount = 3 + Math.floor(hash3(seed, 9.7, 5.0) * 2);
+  for (let n = 0; n < scatterCount; n += 1) {
+    const ang = Math.PI + signedHash(seed, 120.0 + n) * 0.8; // 後方中心 ±0.8rad
+    // 飛距離を伸ばし「飛び散った砂」として読めるスケールに(サイクル2指摘)
+    const dist = baseRadius * (1.3 + hash3(seed, 130.0 + n, 6.0) * 0.65);
+    scatter.push({
+      x: cx + Math.sin(ang) * dist,
+      // 後方 = local -y = canvas下方向(+y)。ang=π(後方中心)で cos=-1 なので
+      // 符号を反転して y を増やす(GLM-5 レビュー指摘: 前方に飛んでいた)。
+      y: cy - Math.cos(ang) * dist,
+      // 大きめ・なだらかな砂だまり(小さく高いと点描状に見える)
+      r: baseRadius * (0.32 + hash3(seed, 140.0 + n, 7.0) * 0.28),
+      amp: 0.2 + hash3(seed, 150.0 + n, 8.0) * 0.18
+    });
+  }
+
+  let offset = 0;
+  for (let yPx = 0; yPx < size; yPx += 1) {
+    const v = (yPx + 0.5) * invSize;
+    for (let xPx = 0; xPx < size; xPx += 1) {
+      const u = (xPx + 0.5) * invSize;
+
+      const dx = u - cx;
+      const dy = v - cy;
+      const dist = Math.hypot(dx, dy) / baseRadius;
+      const theta = Math.atan2(dx, dy);
+
+      const rEff = Math.max(
+        0.55,
+        1.0 + a1 * Math.sin(2.0 * theta + p1) + a2 * Math.sin(3.0 * theta + p2)
+      );
+
+      // 粒の崩れ: 内部はなだらかに、境界付近ほど強く乱す
+      // (内部まで強いノイズを掛けると点描状のちらつきになる)
+      const crumbleNoise = valueNoise2D(u * 7.0 + seed * 0.13, v * 7.0 - seed * 0.07, seed + 31.0);
+      const edgeness = smoothstep(0.55, 1.0, Math.min(dist, 1.9));
+      const crumble =
+        1.0 + (crumbleNoise - 0.5) * (0.2 + (0.35 + edgeCollapse * 0.6) * edgeness * 0.6);
+
+      let depression = 0.0;
+      let raised = 0.0;
+
+      if (dist < rEff) {
+        // 崩れた窪み: 底は平らに近く、壁は外周40%に集中(実際の足跡の断面)
+        const t = dist / rEff;
+        depression = smoothstep(0.0, 1.0, clamp01((1.0 - t) / 0.4)) * crumble;
+      } else if (dist < rEff * 1.9) {
+        // 押し出された縁: 後方(canvas下=dy>0)ほど高く盛る
+        const band = clamp01((dist - rEff) / (rEff * 0.9));
+        const profile = Math.sin(band * Math.PI);
+        const backness = dist > 1e-6 ? Math.max(0.0, dy / (dist * baseRadius)) : 0.0;
+        const dirBias = 0.45 + 0.7 * Math.min(1.0, backness);
+        raised = profile * dirBias * crumble * 0.62;
+      }
+
+      // 蹴り散らしの砂だまり(なだらかな小さな盛り)
+      for (const blob of scatter) {
+        const bd = Math.hypot(u - blob.x, v - blob.y);
+        if (bd < blob.r) {
+          raised += blob.amp * (1.0 - smoothstep(0.0, 1.0, bd / blob.r));
+        }
+      }
+
+      const maskPixel = clamp01(depression);
+      // 窪みの内側では盛りを抑制
+      const raisedPixel = clamp01(raised) * clamp(1.0 - maskPixel * 1.3, 0.0, 1.0);
+
+      data[offset] = Math.round(maskPixel * 255.0);
+      data[offset + 1] = Math.round(raisedPixel * 255.0);
+      data[offset + 2] = 0;
+      data[offset + 3] = 255;
+      offset += 4;
+    }
+  }
+
+  try {
+    ctx.putImageData(image, ox, oy);
+  } catch {
+    return false;
+  }
+
+  return true;
+}
+
+// 攪乱スタンプ版のアトラス生成。generatePawStampAtlas と同じ形式で、
+// 各タイルが seed 違いの「踏み荒らされた砂」バリアントになる。
+export function generateDisturbanceStampAtlas(opts: PawStampOptions, cols = 3, rows = 2): PawStampAtlas {
+  const tile = Math.max(32, Math.floor(finiteOr(opts.size, 256)));
+  const count = Math.max(1, cols * rows);
+
+  const fallback = (): PawStampAtlas => ({ texture: makeFallbackTexture(), cols: 1, rows: 1, count: 1, tileSize: 1 });
+
+  let canvas: StampCanvas;
+  try {
+    canvas = createCanvasRect(tile * cols, tile * rows);
+  } catch {
+    return fallback();
+  }
+
+  const ctx = get2DContext(canvas);
+  if (!ctx) {
+    return fallback();
+  }
+
+  for (let i = 0; i < count; i += 1) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const variantSeed = finiteOr(opts.seed, 0.0) + i * 131.71 + 7.3;
+    if (!paintDisturbance(ctx, col * tile, row * tile, tile, { ...opts, size: tile, seed: variantSeed })) {
+      return fallback();
+    }
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+
+  return { texture, cols, rows, count, tileSize: tile };
+}
+
+export function generateDisturbanceStampTexture(opts: PawStampOptions): THREE.Texture {
+  const size = Math.max(32, Math.floor(finiteOr(opts.size, 128)));
+
+  let canvas: StampCanvas;
+  try {
+    canvas = createCanvas(size);
+  } catch {
+    return makeFallbackTexture();
+  }
+
+  const ctx = get2DContext(canvas);
+  if (!ctx || !paintDisturbance(ctx, 0, 0, size, { ...opts, size })) {
+    return makeFallbackTexture();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps = true;
+  texture.needsUpdate = true;
+
+  return texture;
+}
+
 export function generatePawStampTexture(opts: PawStampOptions): THREE.Texture {
   const size = Math.max(32, Math.floor(finiteOr(opts.size, 128)));
 

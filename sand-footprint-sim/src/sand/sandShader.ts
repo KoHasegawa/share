@@ -136,9 +136,10 @@ function buildSandMaps(size = 256): {
       const shell = smoothstep(0.74, 0.96, grain) * 0.03;
       const mineral = smoothstep(0.985, 1.0, hash2(x + 17.0, y - 11.0)) * 0.05;
 
-      const r = clamp01(0.84 + tonal + ochre * 1.25 + shell - mineral * 0.45);
-      const g = clamp01(0.75 + tonal * 0.82 + ochre * 0.72 + shell * 0.82 - mineral * 0.62);
-      const b = clamp01(0.56 + tonal * 0.55 + ochre * 0.22 + shell * 0.62 - mineral * 0.72);
+      // 乾いた珊瑚砂の明るいクリーム基調 (参考写真 ≒ rgb(229,216,186))
+      const r = clamp01(0.89 + tonal + ochre * 0.7 + shell - mineral * 0.45);
+      const g = clamp01(0.85 + tonal * 0.88 + ochre * 0.5 + shell * 0.82 - mineral * 0.62);
+      const b = clamp01(0.74 + tonal * 0.66 + ochre * 0.26 + shell * 0.62 - mineral * 0.72);
 
       const base = idx * 4;
       albedoData[base] = Math.round(r * 255);
@@ -388,7 +389,7 @@ float hL = sampleSandHeight(vSandUv - vec2(sandHeightTexel.x, 0.0));
 float hR = sampleSandHeight(vSandUv + vec2(sandHeightTexel.x, 0.0));
 float hD = sampleSandHeight(vSandUv - vec2(0.0, sandHeightTexel.y));
 float hU = sampleSandHeight(vSandUv + vec2(0.0, sandHeightTexel.y));
-vec3 macroNormalObject = normalize(vec3((hL - hR) * displacementScale * 8.5, 1.0, (hU - hD) * displacementScale * 8.5));
+vec3 macroNormalObject = normalize(vec3((hL - hR) * displacementScale * 11.0, 1.0, (hU - hD) * displacementScale * 11.0));
 vec3 macroNormalView = normalize((modelViewMatrix * vec4(macroNormalObject, 0.0)).xyz);
 normal = normalize(mix(normal, macroNormalView, 0.82));
 vec3 sandMesoNView = normalize(vec3(-dFdx(sandSH), -dFdy(sandSH), 1.0) * vec3(1.6, 1.6, 1.0));
@@ -410,15 +411,15 @@ float sandShadeAverage = (sandShadeL + sandShadeR + sandShadeD + sandShadeU) * 0
 // Large-scale natural colour variation across the beach: broad patches of
 // whiter and browner sand. Driven by warped world position (not the tiled
 // texture uv), so the patches never repeat with the texture tiling.
-float sandPatch = smoothstep(0.30, 0.70, sandValueNoise(sandSW * 0.16 + vec2(13.0, 7.0)));
-vec3 sandWhite = diffuseColor.rgb * vec3(1.11, 1.10, 1.07);
-vec3 sandBrown = diffuseColor.rgb * vec3(0.78, 0.64, 0.45);
+float sandPatch = smoothstep(0.26, 0.66, sandValueNoise(sandSW * 0.16 + vec2(13.0, 7.0)));
+vec3 sandWhite = diffuseColor.rgb * vec3(1.10, 1.09, 1.06);
+vec3 sandBrown = diffuseColor.rgb * vec3(0.92, 0.87, 0.76);
 diffuseColor.rgb = mix(sandBrown, sandWhite, sandPatch);
 float sandMottle = sandValueNoise(sandSW * 0.52 + vec2(-4.0, 9.0));
 diffuseColor.rgb *= 1.0 + (sandMottle - 0.5) * 0.12;
 
 float troughAO = smoothstep(0.15, -0.5, sandSH);
-diffuseColor.rgb *= 1.0 - troughAO * 0.22;
+diffuseColor.rgb *= 1.0 - troughAO * 0.14;
 diffuseColor.rgb = mix(
   diffuseColor.rgb * vec3(0.86, 0.80, 0.68),
   diffuseColor.rgb * vec3(1.05, 1.04, 1.02),
@@ -448,15 +449,18 @@ float sandConcavityWorld = max(0.0, sandShadeAverage - sandShadeCenter) * displa
 float sandRimWorld = max(0.0, sandShadeCenter) * displacementScale * sandWashRemaining;
 float sandConvexWorld = max(0.0, sandShadeCenter - sandShadeAverage) * displacementScale * sandWashRemaining;
 
-float sandDepthAo = smoothstep(0.0010, 0.022, sandDepressWorld * 0.9 + sandConcavityWorld * 2.2);
-diffuseColor.rgb *= 1.0 - sandDepthAo * 0.45;
+// 乾いた砂: 窪み内部の暗化は淡く(陰影は光の勾配に任せ、塗り潰さない)
+float sandDepthAo = smoothstep(0.002, 0.05, sandDepressWorld * 0.9 + sandConcavityWorld * 2.2);
+diffuseColor.rgb *= 1.0 - sandDepthAo * 0.2;
 
 vec2 sandRimGradient = vec2(sandShadeL - sandShadeR, sandShadeD - sandShadeU);
 float sandRimSlope = length(sandRimGradient);
 vec2 sandRimSlopeDir = sandRimGradient / max(sandRimSlope, 0.0001);
 float sandSunFacing = clamp(dot(sandRimSlopeDir, normalize(vec2(-0.82, 0.57))) * 0.5 + 0.5, 0.0, 1.0);
-float sandRimMask = smoothstep(0.001, 0.060, sandRimWorld + sandConvexWorld * 1.6);
-float sandRimLight = sandRimMask * (0.025 + 0.07 * sandSunFacing) * (1.0 - sandDepthAo * 0.35);
+// 幅広の smoothstep で「線」ではなく「面」として縁に光を回す
+float sandRimMask = smoothstep(0.0008, 0.048, sandRimWorld + sandConvexWorld * 1.6);
+// 乾いた砂は陰影で形を読ませる: 縁の受光ハイライトを主役にする
+float sandRimLight = sandRimMask * (0.05 + 0.13 * sandSunFacing) * (1.0 - sandDepthAo * 0.35);
 diffuseColor.rgb += diffuseColor.rgb * sandRimLight;
 
 float footprintDark = texture2D(sandHeightMap, vSandUv).g;
@@ -506,7 +510,7 @@ roughnessFactor = clamp(roughnessFactor, 0.12, 0.98);`
       );
   };
 
-  material.customProgramCacheKey = (): string => 'sand-heightfield-v8-warped-meso';
+  material.customProgramCacheKey = (): string => 'sand-heightfield-v9-dry-disturbance';
 
   // Sand colour palette stops for the `sandTone` gradient (dry sand).
   const toneWhite = new THREE.Color('#f3ecd9'); // pale white beach

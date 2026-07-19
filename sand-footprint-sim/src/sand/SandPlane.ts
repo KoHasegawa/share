@@ -253,8 +253,11 @@ void main() {
       continue;
     }
 
-    float n = hash12(local * 7.3 + vec2(b.w * 1.31, b.w * 2.17));
-    float collapse = mix(1.0, smoothstep(uEdgeCollapse, 1.0, n), uEdgeCollapse * 0.78);
+    // 崩れはスタンプ側(paintDisturbance)に焼き込み済み。ここでは低周波の
+    // 緩やかな深さムラだけ加える。テクセル単位のホワイトノイズを掛けると
+    // 法線(隣接差分)が乱れて点描状になるため厳禁。
+    float n = valueNoise(local * 3.0 + vec2(b.w * 0.31, b.w * 0.17));
+    float collapse = mix(1.0, 0.72 + 0.56 * n, uEdgeCollapse * 0.6);
     mask *= collapse;
 
     float blurX = texture2D(uStampMap, atlasUv + vec2(uStampTexel.x, 0.0)).r;
@@ -267,20 +270,21 @@ void main() {
     float depth = b.y * (0.55 + 0.45 * uBodyWeight) * (0.55 + 0.45 * uFootDepth);
     float depression = mask * depth;
 
+    // 縁の方向性(後方バイアス)はスタンプのGチャンネルに焼き込み済み。
+    // ここでは輪郭のわずかな立ち上がり(wallAO)だけ薄く残す。
     float wallAO = max(outer - mask, 0.0);
-    float rim = wallAO;
-    float forwardness = clamp(local.y * 0.5 + 0.5, 0.0, 1.0);
-    float outward = clamp(abs(local.x), 0.0, 1.0);
-    float rimDir = mix(0.65, 1.25, forwardness) + outward * 0.25;
-    rim *= rimDir;
+    float rim = wallAO * 0.35;
     rim *= uRimHeight * (0.45 + 0.55 * uCohesion) * depth * (0.6 + 0.4 * ageFade);
 
-    float bottomNoise = valueNoise(world * 26.0 + vec2(b.w)) - 0.5;
+    float bottomNoise = valueNoise(world * 9.0 + vec2(b.w)) - 0.5;
 
     height += (-depression + rim);
-    height += mound * depth * 0.55 * ageFade;
+    // 押し出された縁+蹴り散らし(G)が盛り上がりの主体
+    height += mound * depth * (0.35 + 0.85 * uRimHeight) * (0.5 + 0.5 * uCohesion) * ageFade;
     height += bottomNoise * depression * 0.14;
-    dark += clamp((wallAO * 2.2 + mask * 0.5) * depth * ageFade, 0.0, 1.0);
+    // 乾いた砂は色がほぼ変わらない: 陰影主体。wallAO由来の点状の暗化は
+    // ノイズの多いマスクでちらつくため、なだらかな内部マスク中心にする。
+    dark += clamp((wallAO * 0.3 + mask * 0.45) * depth * ageFade, 0.0, 1.0);
   }
 
   float outHeight = height;
