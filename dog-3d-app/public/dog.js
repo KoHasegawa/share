@@ -25,7 +25,13 @@ export class DogController {
   constructor(sceneContext, options = {}) {
     this.scene = sceneContext.scene;
     this.targets = sceneContext.targets;
+    this.sand = sceneContext.sand || null;
     this.onBark = options.onBark || (() => {});
+    this.strideAccum = 0;
+    this.gaitPhase = 0;
+    this.jumpY = 0;
+    this._pawWorld = new THREE.Vector3();
+    this._moveDir = new THREE.Vector3(0, 0, 1);
 
     this.root = new THREE.Group();
     this.root.position.set(0, 0, 0);
@@ -49,6 +55,15 @@ export class DogController {
     this.updateRotation(delta);
     this.updateSpecial(delta);
     this.applyAnimation(delta);
+    this.applyGrounding();
+  }
+
+  applyGrounding() {
+    // 砂の起伏に接地させる(ジャンプ中はその高さを加算)
+    const groundY = this.sand
+      ? this.sand.surfaceHeightAt(this.root.position.x, this.root.position.z)
+      : 0;
+    this.root.position.y = groundY + this.jumpY;
   }
 
   interrupt() {
@@ -373,13 +388,16 @@ export class DogController {
 
   updateMovement(delta) {
     if (!this.movement) return;
-    const { destination, speed, resolve } = this.movement;
+    const { destination, speed, resolve, target } = this.movement;
     const currentPosition = this.root.position;
     const direction = new THREE.Vector3().subVectors(destination, currentPosition);
+    direction.y = 0; // 高さは接地処理に任せ、水平距離で判定する
     const distance = direction.length();
+    // 目標に重ならない距離で停止する(体長ぶんを考慮。ユーザーの前では手前で止まる)
+    const STOP_DISTANCES = { user: 3.0, ball: 1.0, bowl: 1.3, bed: 0.3 };
+    const stopDistance = STOP_DISTANCES[target] ?? 0.8;
 
-    if (distance < 0.05) {
-      currentPosition.copy(destination);
+    if (distance < Math.max(stopDistance, 0.05)) {
       this.movement = null;
       this.setAnimation('idle');
       if (resolve) resolve();
@@ -387,9 +405,44 @@ export class DogController {
     }
 
     direction.normalize();
-    currentPosition.addScaledVector(direction, speed * delta);
+    const step = speed * delta;
+    currentPosition.addScaledVector(direction, step);
     const yaw = Math.atan2(direction.x, direction.z);
     this.root.rotation.y = lerpAngle(this.root.rotation.y, yaw, 0.15);
+
+    // 歩幅ごとに対角の2足を接地させ、砂を乱す(乾いた砂の踏み跡)
+    this._moveDir.copy(direction);
+    this.strideAccum += step;
+    const isRun = speed > 2.5;
+    const interval = isRun ? 0.7 : 0.45;
+    while (this.strideAccum >= interval) {
+      this.strideAccum -= interval;
+      const pair = this.gaitPhase === 0
+        ? ['frontLeft', 'backRight']
+        : ['frontRight', 'backLeft'];
+      this.gaitPhase = 1 - this.gaitPhase;
+      this.stampPaws(pair, direction, isRun ? 1.45 : 1.0, isRun ? 1.0 : 0.5);
+    }
+  }
+
+  stampPaws(legNames, dir, strength, kick) {
+    if (!this.sand) return;
+    this.root.updateMatrixWorld(true);
+    legNames.forEach((name) => {
+      const leg = this.legs[name];
+      if (!leg) return;
+      leg.group.getWorldPosition(this._pawWorld);
+      this.sand.disturbAt(
+        this._pawWorld.x + (Math.random() - 0.5) * 0.05,
+        this._pawWorld.z + (Math.random() - 0.5) * 0.05,
+        {
+          dirX: dir.x,
+          dirZ: dir.z,
+          strength: strength * (0.85 + Math.random() * 0.3),
+          kick,
+        }
+      );
+    });
   }
 
   updateRotation(delta) {
@@ -399,6 +452,9 @@ export class DogController {
     const progress = Math.min(action.elapsed / action.duration, 1);
     this.root.rotation.y = lerpAngle(action.start, action.end, easeOut(progress));
     if (progress >= 1) {
+      // 向き直りで前足まわりの砂が軽く擦れる
+      this._moveDir.set(Math.sin(this.root.rotation.y), 0, Math.cos(this.root.rotation.y));
+      this.stampPaws(['frontLeft', 'frontRight'], this._moveDir, 0.5, 0.25);
       const { resolve } = action;
       this.rotationAction = null;
       if (resolve) resolve();
@@ -480,13 +536,19 @@ export class DogController {
 
     if (action.type === 'jump') {
       const progress = Math.min(t / action.duration, 1);
-      const height = Math.sin(Math.PI * progress) * 1.2;
-      this.root.position.y = height;
+      this.jumpY = Math.sin(Math.PI * progress) * 1.2;
       this.setAnimation('run');
       if (progress >= 1) {
-        this.root.position.y = 0;
+        this.jumpY = 0;
         this.specialAction = null;
         this.setAnimation('idle');
+        // 着地の衝撃で4足まとめて砂が大きく乱れる
+        this.stampPaws(
+          ['frontLeft', 'frontRight', 'backLeft', 'backRight'],
+          this._moveDir,
+          1.6,
+          1.1
+        );
         const { resolve } = action;
         if (resolve) resolve();
       }

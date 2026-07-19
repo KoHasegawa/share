@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SandField, SAND_FIELD_SIZE } from './sand.js';
 
 export function createScene(canvas) {
   const renderer = new THREE.WebGLRenderer({
@@ -7,16 +8,21 @@ export function createScene(canvas) {
     alpha: true,
   });
   renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
   renderer.setPixelRatio(window.devicePixelRatio);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xbfd7ff);
+  scene.fog = new THREE.Fog(0xe9eef2, 45, 190);
 
-  const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 100);
+  const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 400);
   camera.position.set(0, 1.6, 6);
 
+  addSky(scene);
   addLights(scene);
-  const targets = addEnvironment(scene);
+  const sand = new SandField(scene);
+  const targets = addEnvironment(scene, sand);
   createLookController(renderer.domElement, camera, {
     target: new THREE.Vector3(0, 0.7, 0),
     pitchMin: -1.2,
@@ -46,68 +52,155 @@ export function createScene(canvas) {
     camera,
     renderer,
     targets,
+    sand,
     clock,
     render,
   };
 }
 
-function addLights(scene) {
-  const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-  scene.add(ambient);
-
-  const directional = new THREE.DirectionalLight(0xffffff, 0.9);
-  directional.position.set(6, 10, 4);
-  directional.castShadow = true;
-  directional.shadow.mapSize.width = 2048;
-  directional.shadow.mapSize.height = 2048;
-  directional.shadow.camera.near = 0.5;
-  directional.shadow.camera.far = 30;
-  scene.add(directional);
+function addSky(scene) {
+  // 空: 天頂から地平線へのグラデーションドーム
+  const geometry = new THREE.SphereGeometry(320, 32, 16);
+  const position = geometry.attributes.position;
+  const colors = new Float32Array(position.count * 3);
+  const zenith = new THREE.Color(0x6ea7dd);
+  const horizon = new THREE.Color(0xe9eef2);
+  const c = new THREE.Color();
+  for (let i = 0; i < position.count; i += 1) {
+    const y = position.getY(i) / 320; // -1..1
+    const t = Math.max(0, Math.min(1, Math.pow(Math.max(y, 0), 0.55)));
+    c.copy(horizon).lerp(zenith, t);
+    colors[i * 3] = c.r;
+    colors[i * 3 + 1] = c.g;
+    colors[i * 3 + 2] = c.b;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const material = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    side: THREE.BackSide,
+    fog: false,
+    depthWrite: false,
+  });
+  const sky = new THREE.Mesh(geometry, material);
+  sky.renderOrder = -1;
+  scene.add(sky);
 }
 
-function addEnvironment(scene) {
+function addLights(scene) {
+  // 真夏の砂浜の光: 高い太陽 + 空からの照り返し
+  const hemisphere = new THREE.HemisphereLight(0xbcd8f2, 0xe4d6b4, 0.75);
+  scene.add(hemisphere);
+
+  const sun = new THREE.DirectionalLight(0xfff2dc, 2.9);
+  sun.position.set(13, 11, 6);
+  sun.castShadow = true;
+  sun.shadow.mapSize.width = 2048;
+  sun.shadow.mapSize.height = 2048;
+  sun.shadow.camera.near = 1;
+  sun.shadow.camera.far = 60;
+  sun.shadow.camera.left = -14;
+  sun.shadow.camera.right = 14;
+  sun.shadow.camera.top = 14;
+  sun.shadow.camera.bottom = -14;
+  sun.shadow.bias = -0.0004;
+  sun.shadow.normalBias = 0.02;
+  scene.add(sun);
+}
+
+function addEnvironment(scene, sand) {
   const targets = {};
+  const groundY = (x, z) => (sand ? sand.surfaceHeightAt(x, z) : 0);
 
-  const floorGeometry = new THREE.PlaneGeometry(30, 30);
-  const floorMaterial = new THREE.MeshStandardMaterial({ color: 0xd6e6c3 });
-  const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-  floor.rotation.x = -Math.PI / 2;
-  floor.receiveShadow = true;
-  scene.add(floor);
+  // 遠景の砂原(動的フィールドの外側)
+  const farSandMaterial = new THREE.MeshStandardMaterial({ color: 0xe5d8ba, roughness: 1 });
+  const farSand = new THREE.Mesh(new THREE.PlaneGeometry(500, 500), farSandMaterial);
+  farSand.rotation.x = -Math.PI / 2;
+  farSand.position.y = -0.02;
+  farSand.receiveShadow = true;
+  scene.add(farSand);
 
-  const board = new THREE.Mesh(
-    new THREE.BoxGeometry(12, 0.3, 12),
-    new THREE.MeshStandardMaterial({ color: 0xf5f1e1 })
+  // 波打ち際の湿った砂と海(遠景の雰囲気づくり)
+  const wetSand = new THREE.Mesh(
+    new THREE.PlaneGeometry(500, 14),
+    new THREE.MeshStandardMaterial({ color: 0xcdbb97, roughness: 0.45 })
   );
-  board.position.y = 0.01;
-  board.receiveShadow = true;
-  scene.add(board);
+  wetSand.rotation.x = -Math.PI / 2;
+  wetSand.position.set(0, -0.015, -SAND_FIELD_SIZE / 2 - 18);
+  scene.add(wetSand);
+
+  const sea = new THREE.Mesh(
+    new THREE.PlaneGeometry(500, 160),
+    new THREE.MeshStandardMaterial({
+      color: 0x3b87ae,
+      roughness: 0.25,
+      metalness: 0.05,
+    })
+  );
+  sea.rotation.x = -Math.PI / 2;
+  sea.position.set(0, -0.01, -SAND_FIELD_SIZE / 2 - 18 - 7 - 80);
+  scene.add(sea);
 
   const ball = new THREE.Mesh(
     new THREE.SphereGeometry(0.35, 32, 32),
-    new THREE.MeshStandardMaterial({ color: 0xff5454 })
+    new THREE.MeshStandardMaterial({ color: 0xe14b4b, roughness: 0.55 })
   );
-  ball.position.set(4, 0.35, -2.5);
+  ball.position.set(4, 0.3 + groundY(4, -2.5), -2.5);
   ball.castShadow = true;
   scene.add(ball);
 
-  const bed = new THREE.Mesh(
-    new THREE.BoxGeometry(2.2, 0.4, 1.6),
-    new THREE.MeshStandardMaterial({ color: 0x9f6d4c })
+  // 犬用ベッドの代わりにビーチタオル(ターゲット名は据え置き)
+  const towel = new THREE.Mesh(
+    new THREE.BoxGeometry(2.2, 0.05, 1.6),
+    new THREE.MeshStandardMaterial({ color: 0xdd6f56, roughness: 0.85 })
   );
-  bed.position.set(-4, 0.2, 2.5);
-  bed.castShadow = true;
-  bed.receiveShadow = true;
-  scene.add(bed);
+  towel.position.set(-4, 0.06 + groundY(-4, 2.5), 2.5);
+  towel.rotation.y = 0.25;
+  towel.castShadow = true;
+  towel.receiveShadow = true;
+  scene.add(towel);
+
+  const towelStripe = new THREE.Mesh(
+    new THREE.BoxGeometry(2.2, 0.052, 0.34),
+    new THREE.MeshStandardMaterial({ color: 0xf3ede0, roughness: 0.85 })
+  );
+  towelStripe.position.set(0, 0.002, 0);
+  towel.add(towelStripe);
 
   const bowl = new THREE.Mesh(
     new THREE.CylinderGeometry(0.7, 0.9, 0.35, 32, 1, true),
-    new THREE.MeshStandardMaterial({ color: 0xffb347, side: THREE.DoubleSide })
+    new THREE.MeshStandardMaterial({ color: 0x4d8fc4, roughness: 0.4, side: THREE.DoubleSide })
   );
-  bowl.position.set(2.5, 0.17, 3.2);
+  bowl.position.set(2.5, 0.16 + groundY(2.5, 3.2), 3.2);
   bowl.rotation.x = Math.PI;
   bowl.castShadow = true;
   scene.add(bowl);
+
+  // 流木と貝殻(添景)
+  const driftwood = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.09, 0.13, 2.4, 10),
+    new THREE.MeshStandardMaterial({ color: 0x9a8468, roughness: 0.9 })
+  );
+  driftwood.position.set(-6.5, 0.08 + groundY(-6.5, -4.5), -4.5);
+  driftwood.rotation.set(0, 0.7, Math.PI / 2 - 0.06);
+  driftwood.castShadow = true;
+  driftwood.receiveShadow = true;
+  scene.add(driftwood);
+
+  const shellMaterial = new THREE.MeshStandardMaterial({ color: 0xf6efe2, roughness: 0.5 });
+  const shellPositions = [
+    [1.8, -4.2],
+    [-2.6, -3.1],
+    [5.6, 1.4],
+    [-5.2, 4.6],
+    [0.6, 4.8],
+  ];
+  shellPositions.forEach(([sx, sz], k) => {
+    const shell = new THREE.Mesh(new THREE.SphereGeometry(0.06 + (k % 3) * 0.02, 12, 10), shellMaterial);
+    shell.scale.y = 0.55;
+    shell.position.set(sx, 0.02 + groundY(sx, sz), sz);
+    shell.castShadow = true;
+    scene.add(shell);
+  });
 
   const userMarker = new THREE.Mesh(
     new THREE.ConeGeometry(0.4, 1.2, 16),
@@ -120,7 +213,7 @@ function addEnvironment(scene) {
 
   const labelCanvas = makeLabelCanvas('ユーザー位置');
   const labelTexture = new THREE.CanvasTexture(labelCanvas);
-  labelTexture.encoding = THREE.sRGBEncoding;
+  labelTexture.colorSpace = THREE.SRGBColorSpace;
   labelTexture.needsUpdate = true;
 
   const labelMaterial = new THREE.SpriteMaterial({ map: labelTexture, transparent: true });
@@ -131,7 +224,7 @@ function addEnvironment(scene) {
   scene.add(labelSprite);
 
   targets.ball = ball.position.clone();
-  targets.bed = bed.position.clone();
+  targets.bed = towel.position.clone();
   targets.bowl = bowl.position.clone();
   targets.user = userMarker.position.clone();
 
