@@ -1,0 +1,70 @@
+name: DeepSeek mail bot
+
+# 5 分ごとに受信箱を確認し、未読メールに DeepSeek で返信する。
+# GitHub の cron は最短 5 分間隔で、混雑時は数分〜十数分遅れることがある。
+# 応答の速さを優先するなら、常駐モード（--loop）をサーバや Raspberry Pi で動かす。
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '返信を送らず生成結果をログに出すだけにする'
+        type: boolean
+        default: false
+
+# 前回の実行が終わる前に次が始まると、同じメールを二重処理しかねない。
+concurrency:
+  group: deepseek-mail-bot
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: deepseek-mail-bot/requirements.txt
+
+      - name: 依存関係をインストール
+        run: pip install -r deepseek-mail-bot/requirements.txt
+
+      # スレッドごとの会話履歴はキャッシュで引き継ぐ。
+      # 失われても動作は壊れず、その回が単発の質問として扱われるだけ。
+      - name: 会話履歴を復元
+        uses: actions/cache/restore@v4
+        with:
+          path: deepseek-mail-bot/state
+          key: deepseek-mail-bot-state-${{ github.run_id }}
+          restore-keys: |
+            deepseek-mail-bot-state-
+
+      - name: 未読メールを処理
+        working-directory: deepseek-mail-bot
+        env:
+          IMAP_HOST: ${{ secrets.IMAP_HOST }}
+          IMAP_PORT: ${{ secrets.IMAP_PORT }}
+          IMAP_USER: ${{ secrets.IMAP_USER }}
+          IMAP_PASSWORD: ${{ secrets.IMAP_PASSWORD }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          BOT_ADDRESS: ${{ secrets.BOT_ADDRESS }}
+          ALLOWED_SENDERS: ${{ secrets.ALLOWED_SENDERS }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek-chat' }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: python -m deepseek_mail_bot
+
+      - name: 会話履歴を保存
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: deepseek-mail-bot/state
+          key: deepseek-mail-bot-state-${{ github.run_id }}

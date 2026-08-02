@@ -1,0 +1,32 @@
+# 常駐モードで動かす場合の systemd ユニット例。
+#
+#   sudo cp deepseek-mail-bot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now deepseek-mail-bot
+#   journalctl -u deepseek-mail-bot -f
+#
+# User / WorkingDirectory / ExecStart のパスは環境に合わせて書き換えること。
+
+[Unit]
+Description=DeepSeek mail bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deepseek
+WorkingDirectory=/opt/deepseek-mail-bot
+EnvironmentFile=/opt/deepseek-mail-bot/.env
+ExecStart=/opt/deepseek-mail-bot/.venv/bin/python -m deepseek_mail_bot --loop --interval 60
+Restart=always
+RestartSec=30
+
+# .env に API キーとメールのパスワードが入るため、書き込み範囲を絞っておく。
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/deepseek-mail-bot/state
+
+[Install]
+WantedBy=multi-user.target
